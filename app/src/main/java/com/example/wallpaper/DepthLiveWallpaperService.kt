@@ -22,6 +22,8 @@ import com.example.weather.WeatherClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.isActive
@@ -53,17 +55,33 @@ class DepthLiveWallpaperService : WallpaperService() {
         private var accelSensor: Sensor? = null
 
         private var isVisibleState = false
-        private val serviceScope = CoroutineScope(Dispatchers.Main)
+        private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
         private var weatherJob: Job? = null
         private var audioObserverJob: Job? = null
         private var sceneObserverJob: Job? = null
+
+        private val configListener: (ShaderConfig) -> Unit = { newConfig ->
+            if (::renderer.isInitialized) {
+                renderer.config = newConfig
+                if (newConfig.audioReactive && isVisibleState) {
+                    AudioReactiveManager.startListening(applicationContext)
+                } else if (!newConfig.audioReactive) {
+                    AudioReactiveManager.stopListening()
+                }
+                if (isVisibleState && newConfig.weatherReactivity && weatherJob == null) {
+                    startWeatherPolling()
+                } else if (!newConfig.weatherReactivity) {
+                    weatherJob?.cancel()
+                    weatherJob = null
+                }
+            }
+        }
 
         // System Broadcast Receivers for Unlock & Battery
         private val systemEventReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
                 when (intent?.action) {
                     Intent.ACTION_USER_PRESENT -> {
-                        // Device unlocked event -> trigger 800ms particle scatter and settle
                         Log.d(TAG, "Device unlocked (ACTION_USER_PRESENT)")
                         renderer.triggerUnlockAnimation()
                     }
@@ -106,7 +124,7 @@ class DepthLiveWallpaperService : WallpaperService() {
                     addAction(Intent.ACTION_BATTERY_CHANGED)
                 }
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-                    registerReceiver(systemEventReceiver, filter, Context.RECEIVER_EXPORTED)
+                    registerReceiver(systemEventReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
                 } else {
                     registerReceiver(systemEventReceiver, filter)
                 }
@@ -114,32 +132,19 @@ class DepthLiveWallpaperService : WallpaperService() {
                 Log.w(TAG, "Could not register system receiver: ${e.message}")
             }
 
-            // Observe scene changes from repository
+            // Observe scene and configuration changes for this engine's lifetime.
             sceneObserverJob = serviceScope.launch {
                 WallpaperRepository.activeScene.collectLatest { scene ->
                     renderer.currentScene = scene
                 }
             }
+            WallpaperRepository.addConfigListener(configListener)
 
-            // Observe configuration changes
-            WallpaperRepository.addConfigListener { newConfig ->
-                renderer.config = newConfig
-                if (newConfig.audioReactive && isVisibleState) {
-                    AudioReactiveManager.startListening(applicationContext)
-                } else if (!newConfig.audioReactive) {
-                    AudioReactiveManager.stopListening()
-                }
-            }
-
-            // Observe audio reactivity
             audioObserverJob = serviceScope.launch {
                 AudioReactiveManager.energy.collectLatest { energy ->
                     renderer.audioEnergy = energy
                 }
             }
-
-            // Start ambient weather polling
-            startWeatherPolling()
         }
 
         override fun onVisibilityChanged(visible: Boolean) {
@@ -147,18 +152,22 @@ class DepthLiveWallpaperService : WallpaperService() {
             isVisibleState = visible
 
             if (visible) {
-                // Resume rendering and sensors
+                // Resume rendering and sensors only while Android says the wallpaper is visible.
                 glSurfaceView?.onResume()
                 registerSensors()
-
                 if (renderer.config.audioReactive) {
                     AudioReactiveManager.startListening(applicationContext)
                 }
+                if (renderer.config.weatherReactivity) {
+                    startWeatherPolling()
+                }
             } else {
-                // CRITICAL FOR BATTERY BUDGET: Immediately suspend rendering and sensor listeners
+                // Stop all active work immediately while hidden (including an in-flight weather call).
                 glSurfaceView?.onPause()
                 sensorManager?.unregisterListener(this)
                 AudioReactiveManager.stopListening()
+                weatherJob?.cancel()
+                weatherJob = null
             }
         }
 
@@ -215,10 +224,8 @@ class DepthLiveWallpaperService : WallpaperService() {
                     val orientation = FloatArray(3)
                     SensorManager.getOrientation(rotationMatrix, orientation)
 
-                    val roll = orientation[2] * (180.0f / Math.PI.toFloat()) // tilt left/right
-                    val pitch = orientation[1] * (180.0f / Math.PI.toFloat()) // tilt forward/backward
-
-                    // Clamp to max 4 degrees
+                    val roll = orientation[2] * (180.0f / Math.PI.toFloat())
+                    val pitch = orientation[1] * (180.0f / Math.PI.toFloat())
                     renderer.tiltX = min(4.0f, max(-4.0f, roll * 0.15f))
                     renderer.tiltY = min(4.0f, max(-4.0f, pitch * 0.15f))
                 }
@@ -243,39 +250,35 @@ class DepthLiveWallpaperService : WallpaperService() {
         }
 
         private fun startWeatherPolling() {
-            weatherJob?.cancel()
-            weatherJob = serviceScope.launch(Dispatchers.IO) {
-                while (isActive) {
-                    if (renderer.config.weatherReactivity) {
-                        try {
-                            val weather = WeatherClient.fetchWeather()
-                            renderer.weatherCode = weather.weatherCode
-                            renderer.isRaining = weather.isRaining
-                            renderer.isSnowing = weather.isSnowing
-                        } catch (e: Exception) {
-                            e.printStackTrace()
-                        }
+            if (weatherJob?.isActive == true || !isVisibleState || !renderer.config.weatherReactivity) return
+            weatherJob = serviceScope.launch {
+                while (isActive && isVisibleState && renderer.config.weatherReactivity) {
+                    try {
+                        val weather = WeatherClient.fetchWeather()
+                        renderer.weatherCode = weather.weatherCode
+                        renderer.isRaining = weather.isRaining
+                        renderer.isSnowing = weather.isSnowing
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Weather update failed: ${e.message}")
                     }
-                    // Poll hourly for low battery & data usage
                     delay(3600_000L)
                 }
+                weatherJob = null
             }
         }
 
         override fun onDestroy() {
-            super.onDestroy()
+            WallpaperRepository.removeConfigListener(configListener)
+            serviceScope.cancel()
+            sensorManager?.unregisterListener(this)
+            AudioReactiveManager.stopListening()
             try {
                 unregisterReceiver(systemEventReceiver)
             } catch (ignored: Exception) {}
 
-            sensorManager?.unregisterListener(this)
-            weatherJob?.cancel()
-            audioObserverJob?.cancel()
-            sceneObserverJob?.cancel()
-            AudioReactiveManager.stopListening()
-
             glSurfaceView?.onDestroy()
             glSurfaceView = null
+            super.onDestroy()
         }
     }
 }
