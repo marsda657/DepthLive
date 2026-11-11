@@ -24,4 +24,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "DepthLive"
 
-include(":app")
+include(":app", ":render-engine", ":image-segmentation")
