@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">DepthLive</string>
+    <string name="wallpaper_description">Live interactive 3D parallax wallpaper with dynamic shaders, weather, and motion response.</string>
+</resources>

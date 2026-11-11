@@ -1,0 +1,6 @@
+{
+  "name": "DepthLive",
+  "description": "Interactive 3D live wallpaper transforming photos into multi-layer parallax scenes with real-time shaders, physics, and ambient reactivity.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
