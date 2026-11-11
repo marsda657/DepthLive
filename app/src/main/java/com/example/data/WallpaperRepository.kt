@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 
 /**
  * Central repository managing active scene bitmaps, layer configurations, and persisted settings.
@@ -26,6 +27,8 @@ import kotlinx.coroutines.withContext
 object WallpaperRepository {
     private const val TAG = "WallpaperRepository"
     private const val PREFS_NAME = "depthlive_wallpaper_prefs"
+    private const val CUSTOM_PHOTO_FILE = "active_wallpaper_photo.jpg"
+    private const val TEMP_CUSTOM_PHOTO_FILE = "active_wallpaper_photo.jpg.tmp"
     private var prefs: SharedPreferences? = null
 
     private val _activeScene = MutableStateFlow<ProcessedScene?>(null)
@@ -44,10 +47,11 @@ object WallpaperRepository {
             prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             loadConfigFromPrefs()
 
-            // Pre-load the bundled high-resolution sample landscape scene immediately
+            // Recover the user's last photo after process/service recreation; use the sample only
+            // for first launch or if the saved photo is unavailable or corrupt.
             if (_activeScene.value == null) {
                 CoroutineScope(Dispatchers.IO).launch {
-                    loadBundledSampleScene(context)
+                    loadSavedOrBundledScene(context.applicationContext)
                 }
             }
         }
@@ -66,6 +70,35 @@ object WallpaperRepository {
         _shaderConfig.value = newConfig
         saveConfigToPrefs(newConfig)
         configListeners.forEach { it(newConfig) }
+    }
+
+    private suspend fun loadSavedOrBundledScene(context: Context) = withContext(Dispatchers.IO) {
+        val savedPhoto = File(context.filesDir, CUSTOM_PHOTO_FILE)
+        val bitmap = if (savedPhoto.isFile) {
+            try {
+                BitmapFactory.decodeFile(savedPhoto.absolutePath)
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not decode saved photo; loading the sample instead: ${e.message}")
+                null
+            }
+        } else {
+            null
+        }
+
+        if (bitmap != null) {
+            _isProcessing.value = true
+            try {
+                _activeScene.value = ImageSegmentationEngine.processImage(bitmap, "My Photo")
+                Log.d(TAG, "Restored saved photo scene")
+                return@withContext
+            } catch (e: Exception) {
+                Log.e(TAG, "Could not process saved photo; loading the sample instead", e)
+            } finally {
+                _isProcessing.value = false
+            }
+        }
+
+        loadBundledSampleScene(context)
     }
 
     suspend fun loadBundledSampleScene(context: Context) = withContext(Dispatchers.IO) {
@@ -124,12 +157,37 @@ object WallpaperRepository {
     suspend fun setCustomPhoto(context: Context, bitmap: Bitmap, name: String = "Custom Photo") = withContext(Dispatchers.IO) {
         _isProcessing.value = true
         try {
+            // WallpaperService.Engine can be recreated after the app process is killed. Save the
+            // original locally so the selected photo can be segmented again on the next launch.
+            saveCustomPhoto(context.applicationContext, bitmap)
             val scene = ImageSegmentationEngine.processImage(bitmap, name)
             _activeScene.value = scene
         } catch (e: Throwable) {
             Log.e(TAG, "Error processing custom photo: ${e.message}", e)
         } finally {
             _isProcessing.value = false
+        }
+    }
+
+    private fun saveCustomPhoto(context: Context, bitmap: Bitmap) {
+        val destination = File(context.filesDir, CUSTOM_PHOTO_FILE)
+        val temporary = File(context.filesDir, TEMP_CUSTOM_PHOTO_FILE)
+        try {
+            temporary.outputStream().use { output ->
+                check(bitmap.compress(Bitmap.CompressFormat.JPEG, 95, output)) {
+                    "Bitmap compression failed"
+                }
+                output.fd.sync()
+            }
+            if (!temporary.renameTo(destination)) {
+                // Rename can fail on unusual filesystems; retain the old valid image until the
+                // replacement has been fully written, then use a direct copy as a fallback.
+                temporary.copyTo(destination, overwrite = true)
+                temporary.delete()
+            }
+        } catch (e: Exception) {
+            temporary.delete()
+            Log.w(TAG, "Could not persist selected photo; it will not survive process restart", e)
         }
     }
 
