@@ -4,7 +4,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.BatteryManager
-import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -27,21 +26,16 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BatteryAlert
 import androidx.compose.material.icons.filled.BatteryFull
 import androidx.compose.material.icons.filled.Cloud
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.WbCloudy
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -50,7 +44,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -62,27 +55,18 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.WallpaperRepository
 import com.example.model.ParticleType
-import com.example.weather.CurrentWeather
-import com.example.weather.WeatherClient
-import kotlinx.coroutines.launch
 import java.util.Calendar
 
 /**
- * Ambient Mode Tab handling real-time system clock sun angle, Open-Meteo weather API,
- * and battery-budget throttling.
+ * Ambient settings for local time, manual overlays, and battery behavior.
  */
 @Composable
 fun AmbientWeatherTab(paddingValues: PaddingValues) {
     val context = LocalContext.current
-    val coroutineScope = rememberCoroutineScope()
     val config by WallpaperRepository.shaderConfig.collectAsState()
-
-    var currentWeather by remember { mutableStateOf<CurrentWeather?>(null) }
-    var isLoadingWeather by remember { mutableStateOf(false) }
 
     // Read real battery status from Android system
     var deviceBatteryPercent by remember { mutableIntStateOf(100) }
-    var simulateLowBattery by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         val batteryIntent = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
@@ -92,10 +76,6 @@ fun AmbientWeatherTab(paddingValues: PaddingValues) {
             deviceBatteryPercent = (level * 100) / scale
         }
 
-        // Initial weather fetch
-        isLoadingWeather = true
-        currentWeather = WeatherClient.fetchWeather()
-        isLoadingWeather = false
     }
 
     // Calculate solar elevation angle
@@ -126,12 +106,12 @@ fun AmbientWeatherTab(paddingValues: PaddingValues) {
             color = Color.White
         )
         Text(
-            text = "Real-time synchronization with local time of day, open-meteo weather, and battery budget.",
+            text = "Local time, manual weather overlays, and battery settings.",
             fontSize = 12.sp,
             color = Color(0xFF94A3B8)
         )
 
-        // 1. OPEN-METEO WEATHER CARD
+        // Manual overlays do not require a network request or location.
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(16.dp),
@@ -166,68 +146,19 @@ fun AmbientWeatherTab(paddingValues: PaddingValues) {
                         }
                         Column {
                             Text(
-                                text = "Open-Meteo Weather API",
+                                text = "Weather overlays",
                                 fontSize = 15.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White
                             )
                             Text(
-                                text = "Zero key required • Live environmental sync",
+                                text = "Choose an effect manually; live weather is unavailable.",
                                 fontSize = 11.sp,
                                 color = Color(0xFF94A3B8)
                             )
                         }
                     }
 
-                    IconButton(
-                        onClick = {
-                            coroutineScope.launch {
-                                isLoadingWeather = true
-                                currentWeather = WeatherClient.fetchWeather()
-                                isLoadingWeather = false
-                                Toast.makeText(context, "Weather synced: ${currentWeather?.conditionDescription}", Toast.LENGTH_SHORT).show()
-                            }
-                        },
-                        modifier = Modifier.testTag("refresh_weather_button")
-                    ) {
-                        if (isLoadingWeather) {
-                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = Color(0xFF38BDF8))
-                        } else {
-                            Icon(imageVector = Icons.Default.Refresh, contentDescription = "Refresh Weather", tint = Color(0xFF38BDF8))
-                        }
-                    }
-                }
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(Color(0xFF0F172A), RoundedCornerShape(12.dp))
-                        .padding(14.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column {
-                        Text(
-                            text = currentWeather?.conditionDescription ?: "Syncing...",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
-                        Text(
-                            text = if (currentWeather?.isRaining == true) "Rain particle overlay active"
-                            else if (currentWeather?.isSnowing == true) "Snow flurries overlay active"
-                            else "Atmospheric clear sky shader",
-                            fontSize = 12.sp,
-                            color = if (currentWeather?.isRaining == true) Color(0xFF38BDF8) else Color(0xFF10B981)
-                        )
-                    }
-
-                    Text(
-                        text = "${String.format("%.1f", currentWeather?.temperatureC ?: 20f)}°C",
-                        fontSize = 22.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = Color(0xFF38BDF8)
-                    )
                 }
 
                 // Weather Simulator Toggles
@@ -332,7 +263,7 @@ fun AmbientWeatherTab(paddingValues: PaddingValues) {
             }
         }
 
-        // 3. BATTERY BUDGET & THERMAL LIMITER (<3%/DAY)
+        // 3. Battery status
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(16.dp),
@@ -348,12 +279,12 @@ fun AmbientWeatherTab(paddingValues: PaddingValues) {
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Icon(
-                        imageVector = if (deviceBatteryPercent <= 20) Icons.Default.BatteryAlert else Icons.Default.BatteryFull,
+                        imageVector = if (deviceBatteryPercent < 20) Icons.Default.BatteryAlert else Icons.Default.BatteryFull,
                         contentDescription = null,
-                        tint = if (deviceBatteryPercent <= 20) Color(0xFFF43F5E) else Color(0xFF10B981)
+                        tint = if (deviceBatteryPercent < 20) Color(0xFFF43F5E) else Color(0xFF10B981)
                     )
                     Text(
-                        text = "Battery Budget & Thermal Governor",
+                        text = "Battery Status",
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.White
@@ -361,7 +292,7 @@ fun AmbientWeatherTab(paddingValues: PaddingValues) {
                 }
 
                 Text(
-                    text = "Strict battery policy: under 3% per day. Completely suspends OpenGL thread and sensor listeners onVisibilityChanged(false) and during system Doze.",
+                    text = "Rendering and sensors pause while the wallpaper is hidden or the device is in Doze. Battery usage depends on the device and needs measurement.",
                     fontSize = 12.sp,
                     color = Color(0xFF94A3B8),
                     lineHeight = 16.sp
@@ -385,7 +316,7 @@ fun AmbientWeatherTab(paddingValues: PaddingValues) {
                             text = "$deviceBatteryPercent%",
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Bold,
-                            color = if (deviceBatteryPercent <= 20) Color(0xFFF43F5E) else Color(0xFF10B981)
+                            color = if (deviceBatteryPercent < 20) Color(0xFFF43F5E) else Color(0xFF10B981)
                         )
                     }
 
@@ -396,7 +327,7 @@ fun AmbientWeatherTab(paddingValues: PaddingValues) {
                             color = Color(0xFF94A3B8)
                         )
                         Text(
-                            text = if (deviceBatteryPercent <= 20) "Cooler Tint & 30 FPS Cap" else "Full Performance (60 FPS)",
+                            text = if (deviceBatteryPercent < 20) "30 FPS Cap" else "Configured frame rate",
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color.White
@@ -404,33 +335,6 @@ fun AmbientWeatherTab(paddingValues: PaddingValues) {
                     }
                 }
 
-                // Simulate Low Battery Switch
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Simulate <20% Low Battery State", fontSize = 13.sp, color = Color.White)
-                        Text("Tests the power-saving cool palette and 30fps limiter", fontSize = 11.sp, color = Color(0xFF94A3B8))
-                    }
-                    Switch(
-                        checked = simulateLowBattery,
-                        onCheckedChange = { checked ->
-                            simulateLowBattery = checked
-                            if (checked) {
-                                deviceBatteryPercent = 15
-                                Toast.makeText(context, "Simulating 15% Battery: Cooler palette and 30fps active", Toast.LENGTH_SHORT).show()
-                            } else {
-                                deviceBatteryPercent = 88
-                            }
-                        },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color.White,
-                            checkedTrackColor = Color(0xFFF43F5E)
-                        )
-                    )
-                }
             }
         }
 

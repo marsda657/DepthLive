@@ -85,7 +85,7 @@ fun DiagnosticsTab(paddingValues: PaddingValues) {
                     color = Color.White
                 )
                 Text(
-                    text = "Per-layer masks, depth maps, and hardware engine metrics",
+                    text = "Heuristic layer masks and approximate depth (not MediaPipe)",
                     fontSize = 12.sp,
                     color = Color(0xFF94A3B8)
                 )
@@ -115,7 +115,7 @@ fun DiagnosticsTab(paddingValues: PaddingValues) {
             FilterChip(
                 selected = selectedTopView == 1,
                 onClick = { selectedTopView = 1 },
-                label = { Text("3D Depth Heatmap", fontSize = 12.sp) },
+                label = { Text("Estimated Depth", fontSize = 12.sp) },
                 colors = FilterChipDefaults.filterChipColors(
                     selectedContainerColor = Color(0xFFA855F7),
                     selectedLabelColor = Color.White
@@ -183,8 +183,6 @@ fun DiagnosticsTab(paddingValues: PaddingValues) {
             ) {
                 StatItem(label = "Layers", value = "${scene?.layers?.size ?: 0}")
                 StatItem(label = "Resolution", value = "${scene?.width ?: 0}x${scene?.height ?: 0}")
-                StatItem(label = "GPU Shaders", value = "5 Active")
-                StatItem(label = "Parallax", value = "4.0° Max")
             }
         }
 

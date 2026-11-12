@@ -58,6 +58,18 @@ class DepthLiveUnitTest {
     }
 
     @Test
+    fun motionPrompt_doesNotEnableMicrophoneWithoutSettingsConsent() = runBlocking {
+        val result = MotionPromptManager.parseMotionPrompt("audio pulse with fireflies", ShaderConfig())
+        assertEquals(false, result.config.audioReactive)
+
+        val audioPreset = PresetsData.presets.first { it.config.audioReactive }
+        val presetResult = MotionPromptManager.parseMotionPrompt(audioPreset.name, ShaderConfig())
+        assertEquals(false, presetResult.config.audioReactive)
+        val enabledResult = MotionPromptManager.parseMotionPrompt(audioPreset.name, ShaderConfig(audioReactive = true))
+        assertEquals(true, enabledResult.config.audioReactive)
+    }
+
+    @Test
     fun weatherClient_parsesRainAndSnowCodesCorrectly() {
         val rain = WeatherClient.parseWeatherCode(61, 15f)
         assertTrue(rain.isRaining)

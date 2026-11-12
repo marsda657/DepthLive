@@ -30,7 +30,7 @@ object MotionPromptManager {
                 lower.contains(preset.id.replace("_", " "))
             ) {
                 return@withContext PromptResult(
-                    config = preset.config,
+                    config = preset.config.copy(audioReactive = baseConfig.audioReactive),
                     summary = "Matched preset: ${preset.name}",
                     matchedPresetName = preset.name
                 )
@@ -46,7 +46,6 @@ object MotionPromptManager {
         var parallax = baseConfig.parallaxDegrees
         var particle = baseConfig.particleType
         var amoled = baseConfig.amoledMode
-        var audio = baseConfig.audioReactive
         var sunTracking = baseConfig.celestialSunTracking
         var coolPalette = baseConfig.batterySaverCoolPalette
 
@@ -114,10 +113,9 @@ object MotionPromptManager {
             tags.add("Golden Hour Bloom")
         }
 
-        // Audio & Music
+        // Microphone activation requires the explicit permission flow in settings.
         if (lower.contains("audio") || lower.contains("music") || lower.contains("sound") || lower.contains("beat")) {
-            audio = true
-            tags.add("Microphone Audio-Reactive")
+            tags.add("Enable audio in settings to react to sound")
         }
 
         // Floating dust / fireflies
@@ -135,7 +133,6 @@ object MotionPromptManager {
             parallaxDegrees = parallax.coerceIn(0.5f, 4.0f),
             particleType = particle,
             amoledMode = amoled,
-            audioReactive = audio,
             celestialSunTracking = sunTracking,
             batterySaverCoolPalette = coolPalette
         )

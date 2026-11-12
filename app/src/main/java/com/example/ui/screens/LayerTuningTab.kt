@@ -57,7 +57,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
-import com.example.audio.AudioReactiveManager
 import com.example.data.WallpaperRepository
 import com.example.model.ParticleType
 import com.example.model.ShaderConfig
@@ -75,7 +74,6 @@ fun LayerTuningTab(paddingValues: PaddingValues) {
     ) { isGranted ->
         if (isGranted) {
             WallpaperRepository.updateConfig(config.copy(audioReactive = true))
-            AudioReactiveManager.startListening(context)
             Toast.makeText(context, "Microphone audio-reactive mode enabled", Toast.LENGTH_SHORT).show()
         } else {
             WallpaperRepository.updateConfig(config.copy(audioReactive = false))
@@ -283,7 +281,7 @@ fun LayerTuningTab(paddingValues: PaddingValues) {
 
         // 7. AMOLED & POWER SAVER
         TuningCard(
-            title = "AMOLED & Battery Budget (<3%/day)",
+            title = "AMOLED & Battery Settings",
             subtitle = "Darkens true-black regions to turn OLED pixels completely off",
             icon = Icons.Default.DarkMode,
             iconTint = Color(0xFFE2E8F0)
@@ -354,13 +352,11 @@ fun LayerTuningTab(paddingValues: PaddingValues) {
                         ) == PackageManager.PERMISSION_GRANTED
                         if (hasPerm) {
                             WallpaperRepository.updateConfig(config.copy(audioReactive = true))
-                            AudioReactiveManager.startListening(context)
                         } else {
                             permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                         }
                     } else {
                         WallpaperRepository.updateConfig(config.copy(audioReactive = false))
-                        AudioReactiveManager.stopListening()
                     }
                 }
             )

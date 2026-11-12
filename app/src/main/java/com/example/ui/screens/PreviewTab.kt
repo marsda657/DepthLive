@@ -295,7 +295,7 @@ fun PreviewTab(
                         modifier = Modifier.size(18.dp)
                     )
                     Text(
-                        text = "Motion Prompt (AI & Shader NLP)",
+                        text = "Motion Prompt (offline rules)",
                         fontSize = 14.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = Color.White
@@ -446,7 +446,7 @@ fun PreviewTab(
                         preset = preset,
                         isSelected = false,
                         onSelect = {
-                            WallpaperRepository.updateConfig(preset.config)
+                            WallpaperRepository.updateConfig(preset.config.copy(audioReactive = config.audioReactive))
                             Toast.makeText(context, "Applied: ${preset.name}", Toast.LENGTH_SHORT).show()
                         }
                     )
