@@ -9,8 +9,9 @@ presets. Microphone reactivity requires explicit permission in settings.
 
 - Segmentation uses color and position heuristics, not MediaPipe; the depth
   image is an approximation, not a model-derived depth map.
-- The Compose preview uses Canvas and does not reproduce the wallpaper's GL
-  shaders exactly. The renderer is not yet a standalone Gradle module.
+- The Compose preview and wallpaper use the same OpenGL renderer in the
+  `render-engine` Android library. Preview and wallpaper run in separate GL
+  contexts; behavior still needs verification on devices.
 - Motion prompts use offline keyword rules, not an LLM. Some requested effects
   such as zoom are not implemented.
 - Automatic Open-Meteo weather is disabled: a weather request conflicts with
@@ -24,9 +25,8 @@ presets. Microphone reactivity requires explicit permission in settings.
 
 ## Build
 
-The project requires Android SDK 36.1, a JDK supported by Android Gradle Plugin
-9.1.1, and Gradle 9.3.1. The repository currently contains wrapper properties
-but not the wrapper executable or JAR. Run `gradle testDebugUnitTest` with a
-local Gradle installation and configured Android SDK. The AI Studio signing
+The project requires Android SDK 36.1 and a JDK supported by Android Gradle
+Plugin 9.1.1. Run `./gradlew testDebugUnitTest` with a configured Android SDK;
+the wrapper downloads Gradle 9.3.1. The AI Studio signing
 configuration also expects the keystore files described in
 `app/build.gradle.kts` when building installable packages.

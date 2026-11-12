@@ -79,9 +79,9 @@ class SceneRenderer(
     // Timing & Frame Rate Governor
     private var startTimeMs = SystemClock.uptimeMillis()
     private var lastFrameTimeNs = System.nanoTime()
-    var currentFps: Float = 60.0f
+    @Volatile var currentFps: Float = 60.0f
         private set
-    var frameRenderTimeMs: Float = 0.0f
+    @Volatile var frameRenderTimeMs: Float = 0.0f
         private set
 
     // Interactive Sensor & Touch state
