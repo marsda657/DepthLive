@@ -1,6 +1,8 @@
 package com.example
 
 import android.graphics.Bitmap
+import androidx.test.core.app.ApplicationProvider
+import android.content.Context
 import com.example.llm.MotionPromptManager
 import com.example.model.LayerType
 import com.example.model.ParticleType
@@ -9,9 +11,12 @@ import com.example.model.ShaderConfig
 import com.example.segmentation.ImageSegmentationEngine
 import com.example.weather.WeatherClient
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CancellationException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertFalse
+import org.junit.Assert.fail
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -70,6 +75,54 @@ class DepthLiveUnitTest {
     }
 
     @Test
+    fun aiPromptSelectsOnlyKnownPresetAndPreservesPrivacySettings() = runBlocking {
+        val base = ShaderConfig(audioReactive = false, targetFps = 15, amoledMode = true)
+        val preset = PresetsData.presets.first()
+        val result = MotionPromptManager.parseMotionPrompt("gentle", base) { preset.id }
+        assertEquals(preset.name, result.matchedPresetName)
+        assertEquals(preset.config.cloudDriftSpeed, result.config.cloudDriftSpeed)
+        assertEquals(15, result.config.targetFps)
+        assertTrue(result.config.amoledMode)
+        assertFalse(result.config.audioReactive)
+    }
+
+    @Test
+    fun invalidAiResultFallsBackWithoutEnablingAudio() = runBlocking {
+        val result = MotionPromptManager.parseMotionPrompt("snow music", ShaderConfig()) { "unknown" }
+        assertEquals(ParticleType.SNOW_FLAKES, result.config.particleType)
+        assertFalse(result.config.audioReactive)
+        assertTrue(result.summary.contains("invalid preset"))
+    }
+
+    @Test
+    fun aiFailureFallsBackToOfflineRules() = runBlocking {
+        val result = MotionPromptManager.parseMotionPrompt("rain", ShaderConfig()) { error("Unavailable") }
+        assertEquals(ParticleType.RAIN_DROPS, result.config.particleType)
+        assertTrue(result.summary.contains("Gemini unavailable"))
+    }
+
+    @Test
+    fun namedPresetFallbackPreservesSettings() = runBlocking {
+        val preset = PresetsData.presets.first()
+        val base = ShaderConfig(targetFps = 15, amoledMode = true)
+        val result = MotionPromptManager.parseMotionPrompt(preset.name, base) { "invalid" }
+        assertEquals(15, result.config.targetFps)
+        assertTrue(result.config.amoledMode)
+        assertFalse(result.config.audioReactive)
+    }
+
+    @Test
+    fun aiPromptCancellationIsNotSwallowed() = runBlocking {
+        try {
+            MotionPromptManager.parseMotionPrompt("snow", ShaderConfig()) {
+                throw CancellationException("cancelled")
+            }
+            fail("Cancellation should propagate")
+        } catch (_: CancellationException) {
+        }
+    }
+
+    @Test
     fun weatherClient_parsesRainAndSnowCodesCorrectly() {
         val rain = WeatherClient.parseWeatherCode(61, 15f)
         assertTrue(rain.isRaining)
@@ -87,7 +140,7 @@ class DepthLiveUnitTest {
     @Test
     fun imageSegmentationEngine_produces5LayersAndDepthMap() = runBlocking {
         val testBmp = Bitmap.createBitmap(100, 100, Bitmap.Config.ARGB_8888)
-        val scene = ImageSegmentationEngine.processImage(testBmp, "Test Scene")
+        val scene = ImageSegmentationEngine.processImage(ApplicationProvider.getApplicationContext<Context>(), testBmp, "Test Scene")
 
         assertNotNull(scene)
         assertEquals(5, scene.layers.size)

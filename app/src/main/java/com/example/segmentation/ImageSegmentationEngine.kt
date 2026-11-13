@@ -2,6 +2,7 @@ package com.example.segmentation
 
 import android.graphics.Bitmap
 import android.graphics.Color
+import android.content.Context
 import android.util.Log
 import com.example.model.LayerType
 import com.example.model.ParsedLayer
@@ -14,14 +15,13 @@ import kotlin.math.max
 import kotlin.math.min
 
 /**
- * High-performance on-device image segmentation and depth estimation engine.
- * Splits any user-uploaded photo into up to 5 semantic parallax layers:
- * Sky, Background (horizon/mountains), Ground, Water, and Foreground Subject.
+ * Combines MediaPipe object segmentation with approximate landscape layers and depth.
  */
 object ImageSegmentationEngine {
     private const val TAG = "SegmentationEngine"
 
     suspend fun processImage(
+        context: Context,
         original: Bitmap,
         sceneName: String = "Live Photo Scene"
     ): ProcessedScene = withContext(Dispatchers.Default) {
@@ -31,7 +31,9 @@ object ImageSegmentationEngine {
         // Downsample to 540px width for fast, reliable, crash-free mobile processing
         val targetWidth = 540
         val targetHeight = max(1, (srcH * (targetWidth.toFloat() / srcW)).toInt())
-        val scaled = Bitmap.createScaledBitmap(original, targetWidth, targetHeight, true)
+        val resized = Bitmap.createScaledBitmap(original, targetWidth, targetHeight, true)
+        val scaled = if (resized.config == Bitmap.Config.ARGB_8888) resized
+            else resized.copy(Bitmap.Config.ARGB_8888, false)
 
         val w = scaled.width
         val h = scaled.height
@@ -40,9 +42,17 @@ object ImageSegmentationEngine {
         val pixels = IntArray(totalPixels)
         scaled.getPixels(pixels, 0, w, 0, 0, w, h)
 
-        // Semantic classification mask: 0=SKY, 1=BACKGROUND, 2=WATER, 3=GROUND, 4=FOREGROUND
+        val foregroundMask = try {
+            MediaPipeForegroundSegmenter.segment(context.applicationContext, scaled)
+        } catch (e: RuntimeException) {
+            Log.e(TAG, "MediaPipe segmentation failed; using heuristic layers", e)
+            null
+        } catch (e: LinkageError) {
+            Log.e(TAG, "MediaPipe native runtime unavailable; using heuristic layers", e)
+            null
+        }
+
         val classMask = ByteArray(totalPixels)
-        val depthMap = FloatArray(totalPixels)
         val hsv = FloatArray(3)
 
         // Pass 1: Semantic feature extraction and boundary estimation
@@ -71,23 +81,16 @@ object ImageSegmentationEngine {
                     false
                 }
 
-                if (isForegroundCandidate) {
+                if (foregroundMask?.contains(x, y, w, h) ?: isForegroundCandidate) {
                     classMask[idx] = 4 // FOREGROUND
-                    depthMap[idx] = 0.90f + 0.10f * yRatio
                 } else if (yRatio < 0.38f && (isBlueHue || (value > 0.70f && sat < 0.28f))) {
                     classMask[idx] = 0 // SKY
-                    depthMap[idx] = 0.05f + 0.05f * yRatio
                 } else if (yRatio in 0.32f..0.54f && (value < 0.65f || hue in 200.0f..280.0f || (sat < 0.28f && value > 0.35f))) {
                     classMask[idx] = 1 // BACKGROUND
-                    depthMap[idx] = 0.22f + 0.10f * ((yRatio - 0.32f) / 0.22f)
                 } else if (yRatio in 0.44f..0.82f && (isBlueHue || isCyanHue || (sat < 0.40f && value in 0.20f..0.75f))) {
                     classMask[idx] = 2 // WATER
-                    val waterProgress = (yRatio - 0.44f) / 0.38f
-                    depthMap[idx] = 0.38f + 0.22f * waterProgress
                 } else {
                     classMask[idx] = 3 // GROUND
-                    val groundProgress = max(0f, min(1f, (yRatio - 0.55f) / 0.45f))
-                    depthMap[idx] = 0.62f + 0.28f * groundProgress
                 }
             }
         }
@@ -95,7 +98,7 @@ object ImageSegmentationEngine {
         // Pass 2: Spatial smoothing with safe bounds check
         smoothClassificationMask(classMask, w, h)
 
-        // Pass 3: Extract individual feathered layer bitmaps
+        // Pass 3: Extract individual layer bitmaps
         val layers = mutableListOf<ParsedLayer>()
         val layerTypes = listOf(
             LayerType.SKY to 0,
@@ -136,7 +139,8 @@ object ImageSegmentationEngine {
         }
 
         // Pass 4: Build depth heatmap
-        val depthBmp = generateDepthHeatmap(depthMap, w, h)
+        val depths = floatArrayOf(0.05f, 0.25f, 0.45f, 0.65f, 0.95f)
+        val depthBmp = generateDepthHeatmap(FloatArray(totalPixels) { depths[classMask[it].toInt()] }, w, h)
 
         ProcessedScene(
             id = UUID.randomUUID().toString(),
@@ -145,7 +149,9 @@ object ImageSegmentationEngine {
             depthMapBitmap = depthBmp,
             layers = layers,
             width = w,
-            height = h
+            height = h,
+            analysisMethod = if (foregroundMask != null) "MediaPipe objects; estimated landscape and depth"
+                else "Heuristic fallback; estimated landscape and depth"
         )
     }
 

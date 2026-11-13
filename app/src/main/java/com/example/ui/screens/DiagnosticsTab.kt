@@ -85,7 +85,7 @@ fun DiagnosticsTab(paddingValues: PaddingValues) {
                     color = Color.White
                 )
                 Text(
-                    text = "Heuristic layer masks and approximate depth (not MediaPipe)",
+                    text = scene?.analysisMethod ?: "No analysis yet",
                     fontSize = 12.sp,
                     color = Color(0xFF94A3B8)
                 )

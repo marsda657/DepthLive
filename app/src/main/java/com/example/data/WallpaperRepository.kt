@@ -88,7 +88,7 @@ object WallpaperRepository {
         if (bitmap != null) {
             _isProcessing.value = true
             try {
-                _activeScene.value = ImageSegmentationEngine.processImage(bitmap, "My Photo")
+                _activeScene.value = ImageSegmentationEngine.processImage(context, bitmap, "My Photo")
                 Log.d(TAG, "Restored saved photo scene")
                 return@withContext
             } catch (e: Exception) {
@@ -144,7 +144,7 @@ object WallpaperRepository {
             }
 
             Log.d(TAG, "Loaded base image: ${bitmap.width}x${bitmap.height}, starting segmentation...")
-            val scene = ImageSegmentationEngine.processImage(bitmap, "Alpine Lake & Peaks")
+            val scene = ImageSegmentationEngine.processImage(context, bitmap, "Alpine Lake & Peaks")
             _activeScene.value = scene
             Log.d(TAG, "Scene segmentation completed with ${scene.layers.size} layers")
         } catch (e: Throwable) {
@@ -160,7 +160,7 @@ object WallpaperRepository {
             // WallpaperService.Engine can be recreated after the app process is killed. Save the
             // original locally so the selected photo can be segmented again on the next launch.
             saveCustomPhoto(context.applicationContext, bitmap)
-            val scene = ImageSegmentationEngine.processImage(bitmap, name)
+            val scene = ImageSegmentationEngine.processImage(context, bitmap, name)
             _activeScene.value = scene
         } catch (e: Throwable) {
             Log.e(TAG, "Error processing custom photo: ${e.message}", e)

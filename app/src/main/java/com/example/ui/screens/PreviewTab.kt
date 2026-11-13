@@ -52,6 +52,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.SuggestionChipDefaults
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -71,6 +72,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.WallpaperRepository
 import com.example.llm.MotionPromptManager
+import com.example.llm.GeminiMotionSelector
 import com.example.model.MotionPreset
 import com.example.model.PresetsData
 import com.example.ui.components.GlLivePreview
@@ -98,6 +100,23 @@ fun PreviewTab(
     var promptInput by remember { mutableStateOf("") }
     var promptStatus by remember { mutableStateOf<String?>(null) }
     var isGeneratingPrompt by remember { mutableStateOf(false) }
+    var useGemini by remember { mutableStateOf(false) }
+
+    fun applyPrompt(text: String) {
+        if (isGeneratingPrompt || text.isBlank()) return
+        isGeneratingPrompt = true
+        val selector: (suspend (String) -> String)? =
+            if (useGemini) { value -> GeminiMotionSelector.select(context, value) } else null
+        coroutineScope.launch {
+            try {
+                val result = MotionPromptManager.parseMotionPrompt(text, config, selector)
+                WallpaperRepository.updateConfig(result.config)
+                promptStatus = result.summary
+            } finally {
+                isGeneratingPrompt = false
+            }
+        }
+    }
 
     // Zero-permission modern Android Photo Picker
     val photoPickerLauncher = rememberLauncherForActivityResult(
@@ -295,7 +314,7 @@ fun PreviewTab(
                         modifier = Modifier.size(18.dp)
                     )
                     Text(
-                        text = "Motion Prompt (offline rules)",
+                        text = "Motion Prompt",
                         fontSize = 14.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = Color.White
@@ -303,10 +322,19 @@ fun PreviewTab(
                 }
 
                 Text(
-                    text = "Type natural language to tune physics & shaders, or pick a suggestion below:",
+                    text = "Offline by default. Gemini sends only the prompt text to Google; photos stay on-device.",
                     fontSize = 12.sp,
                     color = Color(0xFF94A3B8)
                 )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("Use Gemini for this prompt", color = Color.White, fontSize = 12.sp)
+                    Switch(checked = useGemini, onCheckedChange = { useGemini = it }, enabled = !isGeneratingPrompt)
+                }
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -315,7 +343,7 @@ fun PreviewTab(
                 ) {
                     OutlinedTextField(
                         value = promptInput,
-                        onValueChange = { promptInput = it },
+                        onValueChange = { promptInput = it.take(500) },
                         modifier = Modifier
                             .weight(1f)
                             .testTag("motion_prompt_input"),
@@ -335,17 +363,7 @@ fun PreviewTab(
                     )
 
                     Button(
-                        onClick = {
-                            if (promptInput.isNotBlank()) {
-                                isGeneratingPrompt = true
-                                coroutineScope.launch {
-                                    val result = MotionPromptManager.parseMotionPrompt(promptInput, config)
-                                    WallpaperRepository.updateConfig(result.config)
-                                    promptStatus = result.summary
-                                    isGeneratingPrompt = false
-                                }
-                            }
-                        },
+                        onClick = { applyPrompt(promptInput) },
                         enabled = !isGeneratingPrompt && promptInput.isNotBlank(),
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier
@@ -379,18 +397,15 @@ fun PreviewTab(
                         SuggestionChip(
                             onClick = {
                                 promptInput = suggestion
-                                coroutineScope.launch {
-                                    val result = MotionPromptManager.parseMotionPrompt(suggestion, config)
-                                    WallpaperRepository.updateConfig(result.config)
-                                    promptStatus = result.summary
-                                }
+                                applyPrompt(suggestion)
                             },
+                            enabled = !isGeneratingPrompt,
                             label = { Text(suggestion, fontSize = 11.sp, color = Color(0xFFCBD5E1)) },
                             colors = SuggestionChipDefaults.suggestionChipColors(
                                 containerColor = Color(0xFF1E293B)
                             ),
                             border = SuggestionChipDefaults.suggestionChipBorder(
-                                enabled = true,
+                                enabled = !isGeneratingPrompt,
                                 borderColor = Color(0xFF334155)
                             )
                         )
