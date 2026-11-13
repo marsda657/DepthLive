@@ -12,6 +12,7 @@ import com.example.model.ParticleType
 import com.example.model.ProcessedScene
 import com.example.model.ShaderConfig
 import com.example.segmentation.ImageSegmentationEngine
+import com.example.weather.WeatherRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -43,6 +44,7 @@ object WallpaperRepository {
     private val configListeners = mutableListOf<(ShaderConfig) -> Unit>()
 
     fun init(context: Context) {
+        WeatherRepository.init(context)
         if (prefs == null) {
             prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             loadConfigFromPrefs()

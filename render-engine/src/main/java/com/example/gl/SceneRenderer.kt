@@ -102,9 +102,9 @@ class SceneRenderer(
     @Volatile var isLowBattery: Boolean = false
 
     // Weather state
-    var weatherCode: Int = 0 // 0=Clear, 61=Rain, 71=Snow, etc.
-    var isRaining: Boolean = false
-    var isSnowing: Boolean = false
+    @Volatile var weatherCode: Int = 0 // 0=Clear, 61=Rain, 71=Snow, etc.
+    @Volatile var isRaining: Boolean = false
+    @Volatile var isSnowing: Boolean = false
 
     fun triggerTouchRipple(xNorm: Float, yNorm: Float) {
         ripple = Ripple(xNorm.coerceIn(0f, 1f), yNorm.coerceIn(0f, 1f), SystemClock.uptimeMillis())
@@ -265,7 +265,8 @@ class SceneRenderer(
         }
 
         // Draw particle overlay (dust, fireflies, rain, snow)
-        if (config.particleType != ParticleType.NONE || isRaining || isSnowing) {
+        if (config.particleType != ParticleType.NONE || (config.weatherReactivity &&
+                config.autoWeatherOverlays && (isRaining || isSnowing))) {
             renderAmbientParticles(timeSec, unlockProgress)
         }
 
@@ -290,8 +291,10 @@ class SceneRenderer(
         setUniform1f(particleProgram, "uAudioEnergy", if (config.audioReactive) audioEnergy else 0.0f)
 
         val particleCode = when {
-            isRaining || config.particleType == ParticleType.RAIN_DROPS -> 3
-            isSnowing || config.particleType == ParticleType.SNOW_FLAKES -> 4
+            config.particleType == ParticleType.RAIN_DROPS -> 3
+            config.particleType == ParticleType.SNOW_FLAKES -> 4
+            config.weatherReactivity && config.autoWeatherOverlays && isRaining -> 3
+            config.weatherReactivity && config.autoWeatherOverlays && isSnowing -> 4
             config.particleType == ParticleType.FIREFLIES -> 1
             config.particleType == ParticleType.CHERRY_PETALS -> 2
             else -> 0 // FLOATING_DUST

@@ -52,6 +52,7 @@ import com.example.audio.AudioReactiveManager
 import com.example.gl.SceneRenderer
 import com.example.model.ProcessedScene
 import com.example.model.ShaderConfig
+import com.example.weather.WeatherRepository
 import kotlinx.coroutines.delay
 
 @Composable
@@ -64,6 +65,7 @@ fun GlLivePreview(
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val audioEnergy by AudioReactiveManager.energy.collectAsState()
+    val weather by WeatherRepository.state.collectAsState()
     val renderer = remember(context) { SceneRenderer(context.applicationContext) }
     val glView = remember(context, renderer) {
         GLSurfaceView(context).apply {
@@ -190,6 +192,9 @@ fun GlLivePreview(
                 if (renderer.currentScene !== scene) renderer.currentScene = scene
                 renderer.config = config
                 renderer.audioEnergy = audioEnergy
+                renderer.isRaining = weather.forecast?.weather?.isRaining == true
+                renderer.isSnowing = weather.forecast?.weather?.isSnowing == true
+                renderer.weatherCode = weather.forecast?.weather?.weatherCode ?: 0
             }
         )
         if (scene == null) {

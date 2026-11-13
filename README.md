@@ -21,9 +21,18 @@ reactivity requires explicit permission in settings.
   the user explicitly enables it. Invalid, unavailable or timed-out replies
   fall back to offline rules. Some requested effects, including zoom, are not
   implemented.
-- Automatic Open-Meteo weather is disabled: a weather request conflicts with
-  the requirement that only motion-prompt LLM calls use the network. Rain and
-  snow can be selected manually.
+- Optional Open-Meteo weather is enabled only after a city is explicitly saved
+  in Ambient settings. No device location is accessed. The city is sent to
+  Open-Meteo's geocoding service, which selects the first matching place; its
+  coordinates are then sent to the forecast service. The resolved location
+  is displayed in settings so ambiguous results can be corrected.
+  The last successful forecast is cached locally for offline use; without a
+  city or cached forecast, ambient time and battery behavior continue without
+  automatic weather overlays. The visible wallpaper checks every 30 minutes
+  and reuses a forecast less than 30 minutes old; saving the same city again
+  requests an immediate refresh. It does not schedule background work while
+  hidden or in Doze. Manual rain and snow remain available. Review
+  [Open-Meteo's terms](https://open-meteo.com/en/terms) for commercial use.
 - The renderer adjusts between 60, 30, and 15 fps based on measured frame
   cadence, subject to the selected maximum and a 30 fps cap below 20% battery.
   The under-3%-per-day battery target and frame rates require device testing.

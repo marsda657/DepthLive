@@ -36,6 +36,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -44,6 +45,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -55,7 +57,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.WallpaperRepository
 import com.example.model.ParticleType
+import com.example.weather.WeatherRepository
+import kotlinx.coroutines.launch
+import java.text.DateFormat
 import java.util.Calendar
+import java.util.Date
 
 /**
  * Ambient settings for local time, manual overlays, and battery behavior.
@@ -64,6 +70,9 @@ import java.util.Calendar
 fun AmbientWeatherTab(paddingValues: PaddingValues) {
     val context = LocalContext.current
     val config by WallpaperRepository.shaderConfig.collectAsState()
+    val weather by WeatherRepository.state.collectAsState()
+    val scope = rememberCoroutineScope()
+    var cityInput by remember(weather.city) { mutableStateOf(weather.city) }
 
     // Read real battery status from Android system
     var deviceBatteryPercent by remember { mutableIntStateOf(100) }
@@ -106,7 +115,7 @@ fun AmbientWeatherTab(paddingValues: PaddingValues) {
             color = Color.White
         )
         Text(
-            text = "Local time, manual weather overlays, and battery settings.",
+            text = "Local time, optional city weather, and battery settings.",
             fontSize = 12.sp,
             color = Color(0xFF94A3B8)
         )
@@ -152,7 +161,7 @@ fun AmbientWeatherTab(paddingValues: PaddingValues) {
                                 color = Color.White
                             )
                             Text(
-                                text = "Choose an effect manually; live weather is unavailable.",
+                                text = "Optional Open-Meteo weather for a city you choose.",
                                 fontSize = 11.sp,
                                 color = Color(0xFF94A3B8)
                             )
@@ -161,7 +170,62 @@ fun AmbientWeatherTab(paddingValues: PaddingValues) {
 
                 }
 
-                // Weather Simulator Toggles
+                OutlinedTextField(
+                    value = cityInput,
+                    onValueChange = { cityInput = it.take(100) },
+                    label = { Text("City (optionally include region or country)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().testTag("weather_city_input")
+                )
+                Text(
+                    "Saving sends this city to Open-Meteo. The first matching city is used; no device location is accessed.",
+                    fontSize = 11.sp,
+                    color = Color(0xFF94A3B8)
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = {
+                            val changed = cityInput.trim() != weather.city
+                            WeatherRepository.setCity(cityInput)
+                            scope.launch { WeatherRepository.refresh(force = !changed) }
+                        },
+                        enabled = cityInput.trim().length in 2..100 && !weather.refreshing,
+                        modifier = Modifier.testTag("weather_city_save")
+                    ) { Text("Save city") }
+                    OutlinedButton(
+                        onClick = { WeatherRepository.setCity(""); cityInput = "" },
+                        enabled = weather.city.isNotEmpty(),
+                        modifier = Modifier.testTag("weather_city_clear")
+                    ) { Text("Disable weather") }
+                }
+                val forecast = weather.forecast
+                Text(
+                    text = when {
+                        weather.refreshing -> "Updating weather..."
+                        weather.error != null -> weather.error!!
+                        forecast != null -> "${forecast.resolvedName}: ${forecast.weather.conditionDescription} (${forecast.weather.temperatureC}°C)"
+                        weather.city.isEmpty() -> "Weather disabled. Time and battery settings remain active."
+                        else -> "No forecast available yet."
+                    },
+                    fontSize = 12.sp,
+                    color = Color(0xFF94A3B8),
+                    modifier = Modifier.testTag("weather_status")
+                )
+                if (weather.error != null && forecast != null) {
+                    Text(
+                        "Last successful: ${forecast.resolvedName}, ${forecast.weather.conditionDescription}",
+                        fontSize = 11.sp,
+                        color = Color(0xFF94A3B8)
+                    )
+                }
+                if (forecast != null) {
+                    Text(
+                        "Last updated: ${DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(forecast.fetchedAt))}",
+                        fontSize = 11.sp,
+                        color = Color(0xFF94A3B8)
+                    )
+                }
+
                 Text("Simulate Weather Overlays", fontSize = 12.sp, color = Color(0xFF94A3B8))
                 Row(
                     modifier = Modifier.fillMaxWidth(),

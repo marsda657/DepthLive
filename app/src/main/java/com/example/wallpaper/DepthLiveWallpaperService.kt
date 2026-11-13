@@ -19,12 +19,16 @@ import com.example.audio.AudioReactiveManager
 import com.example.data.WallpaperRepository
 import com.example.gl.SceneRenderer
 import com.example.model.ShaderConfig
+import com.example.weather.WeatherRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlin.math.max
 import kotlin.math.min
@@ -56,6 +60,7 @@ class DepthLiveWallpaperService : WallpaperService() {
         private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
         private var audioObserverJob: Job? = null
         private var sceneObserverJob: Job? = null
+        private var weatherRefreshJob: Job? = null
         private var renderingActive = false
         private var powerManager: PowerManager? = null
 
@@ -142,6 +147,13 @@ class DepthLiveWallpaperService : WallpaperService() {
                     renderer.audioEnergy = energy
                 }
             }
+            serviceScope.launch {
+                WeatherRepository.state.collectLatest { state ->
+                    renderer.isRaining = state.forecast?.weather?.isRaining == true
+                    renderer.isSnowing = state.forecast?.weather?.isSnowing == true
+                    renderer.weatherCode = state.forecast?.weather?.weatherCode ?: 0
+                }
+            }
         }
 
         override fun onVisibilityChanged(visible: Boolean) {
@@ -157,10 +169,22 @@ class DepthLiveWallpaperService : WallpaperService() {
             if (shouldRender) {
                 glSurfaceView?.onResume()
                 registerSensors()
+                weatherRefreshJob = serviceScope.launch {
+                    WeatherRepository.state.map { it.city }.distinctUntilChanged().collectLatest { city ->
+                        if (city.isNotEmpty()) {
+                            while (true) {
+                                WeatherRepository.refresh()
+                                delay(WeatherRepository.REFRESH_INTERVAL_MS)
+                            }
+                        }
+                    }
+                }
                 if (renderer.config.audioReactive) {
                     AudioReactiveManager.startListening(applicationContext)
                 }
             } else {
+                weatherRefreshJob?.cancel()
+                weatherRefreshJob = null
                 glSurfaceView?.onPause()
                 sensorManager?.unregisterListener(this)
                 AudioReactiveManager.stopListening()
