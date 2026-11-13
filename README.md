@@ -97,6 +97,9 @@ to `[-1, 1]`, and its float32 output is `[1, 513, 513, 151]` logits.
 A desktop LiteRT inference on the bundled sample landscape identified sky,
 water, trees and mountains in representative image regions. This is a smoke
 test, not a quantitative accuracy evaluation or an Android device test.
+Desktop MediaPipe's category-mask API produced the same labels at those points;
+the Python process peaked at approximately 572 MiB RSS, including the Python
+runtime and libraries.
 
 The output tensor alone occupies approximately 152 MiB, despite the model file
 being about 2.3 MiB. Peak memory, inference latency, device compatibility,
