@@ -14,7 +14,7 @@ reactivity requires explicit permission in settings.
 - The Compose preview and wallpaper use the same OpenGL renderer in the
   `render-engine` Android library. Preview and wallpaper run in separate GL
   contexts; behavior still needs verification on devices.
-- Gemini can select one of the 12 shader presets from a text prompt after
+- Mistral AI (default) or Grok (xAI) can select one of the 12 shader presets from a text prompt after
   the user explicitly enables it. Invalid, unavailable or timed-out replies
   fall back to offline rules. Some requested effects, including zoom, are not
   implemented.
@@ -43,10 +43,11 @@ Subsequent builds can use the verified model in
 `--offline`. The model recognizes the 20 Pascal VOC object classes, not
 sky or water. Review the model's applicable distribution terms before release.
 
-To enable Gemini, register application ID `com.aistudio.depthlive.vwpqzx` in a
-Firebase project, enable Firebase AI Logic with the Gemini Developer API, and
-place that project's `google-services.json` in `app/`. Configure App Check for
-the release application as appropriate. Never put a Gemini API key in the APK.
-The optional Gemini switch is off by default; only the entered text and the
-built-in preset descriptions are sent when a user explicitly requests it.
-Without Firebase configuration or connectivity, the prompt uses offline rules.
+To enable the LLM, open the Motion Prompt card, choose Mistral AI (default) or
+Grok (xAI), paste your own API key and switch the option on. Keys are encrypted
+with an Android Keystore AES key and are never bundled in the APK. The switch is
+off by default; only the entered text and the built-in preset descriptions are
+sent, over HTTPS, to the OpenAI-compatible chat endpoint. Replies must be one of
+the 12 preset IDs. Without a key, connectivity or a valid reply, the prompt uses
+offline rules. Model names (`mistral-small-latest`, `grok-3-mini`) are in
+`LlmProvider.kt` and have not been exercised against the live services.

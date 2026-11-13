@@ -98,7 +98,7 @@ class DepthLiveUnitTest {
     fun aiFailureFallsBackToOfflineRules() = runBlocking {
         val result = MotionPromptManager.parseMotionPrompt("rain", ShaderConfig()) { error("Unavailable") }
         assertEquals(ParticleType.RAIN_DROPS, result.config.particleType)
-        assertTrue(result.summary.contains("Gemini unavailable"))
+        assertTrue(result.summary.contains("AI unavailable"))
     }
 
     @Test

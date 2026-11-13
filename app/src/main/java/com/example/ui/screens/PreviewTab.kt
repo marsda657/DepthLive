@@ -72,7 +72,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.WallpaperRepository
 import com.example.llm.MotionPromptManager
-import com.example.llm.GeminiMotionSelector
+import com.example.llm.ApiKeyStore
+import com.example.llm.ChatMotionSelector
+import com.example.llm.LlmProvider
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import com.example.model.MotionPreset
 import com.example.model.PresetsData
 import com.example.ui.components.GlLivePreview
@@ -100,13 +103,20 @@ fun PreviewTab(
     var promptInput by remember { mutableStateOf("") }
     var promptStatus by remember { mutableStateOf<String?>(null) }
     var isGeneratingPrompt by remember { mutableStateOf(false) }
-    var useGemini by remember { mutableStateOf(false) }
+    var useAi by remember { mutableStateOf(false) }
+    var provider by remember { mutableStateOf(LlmProvider.MISTRAL) }
+    val keyStore = remember { ApiKeyStore(context) }
+    var keyInput by remember { mutableStateOf("") }
+    var keySaved by remember(provider) { mutableStateOf(keyStore.hasKey(provider)) }
 
     fun applyPrompt(text: String) {
         if (isGeneratingPrompt || text.isBlank()) return
         isGeneratingPrompt = true
         val selector: (suspend (String) -> String)? =
-            if (useGemini) { value -> GeminiMotionSelector.select(context, value) } else null
+            if (useAi) { value ->
+                val key = keyStore.get(provider) ?: throw IllegalStateException("No API key saved")
+                ChatMotionSelector.select(provider, key, value)
+            } else null
         coroutineScope.launch {
             try {
                 val result = MotionPromptManager.parseMotionPrompt(text, config, selector)
@@ -322,7 +332,7 @@ fun PreviewTab(
                 }
 
                 Text(
-                    text = "Offline by default. Gemini sends only the prompt text to Google; photos stay on-device.",
+                    text = "Offline by default. If enabled, only the prompt text is sent to the chosen provider with your own API key; photos stay on-device.",
                     fontSize = 12.sp,
                     color = Color(0xFF94A3B8)
                 )
@@ -332,8 +342,35 @@ fun PreviewTab(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text("Use Gemini for this prompt", color = Color.White, fontSize = 12.sp)
-                    Switch(checked = useGemini, onCheckedChange = { useGemini = it }, enabled = !isGeneratingPrompt)
+                    Text("Use ${provider.label} for this prompt", color = Color.White, fontSize = 12.sp)
+                    Switch(checked = useAi, onCheckedChange = { useAi = it }, enabled = !isGeneratingPrompt)
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    LlmProvider.values().forEach { p ->
+                        if (p == provider) Button(onClick = {}) { Text(p.label, fontSize = 12.sp) }
+                        else OutlinedButton(onClick = { provider = p }) { Text(p.label, fontSize = 12.sp) }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = keyInput,
+                        onValueChange = { keyInput = it },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        placeholder = { Text(if (keySaved) "Key saved (encrypted)" else "${provider.label} API key", fontSize = 12.sp) }
+                    )
+                    OutlinedButton(onClick = {
+                        keyStore.put(provider, keyInput)
+                        keyInput = ""
+                        keySaved = keyStore.hasKey(provider)
+                    }) { Text("Save", fontSize = 12.sp) }
                 }
 
                 Row(

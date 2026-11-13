@@ -38,16 +38,16 @@ object MotionPromptManager {
                 if (preset != null) {
                     return@withContext PromptResult(
                         config = applyMotionPreset(baseConfig, preset.config),
-                        summary = "Gemini selected ${preset.name}",
+                        summary = "AI selected ${preset.name}",
                         matchedPresetName = preset.name
                     )
                 }
-                fallbackReason = if (selection == null) "Gemini timed out" else "Gemini returned an invalid preset"
+                fallbackReason = if (selection == null) "AI request timed out" else "AI returned an invalid preset"
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.w(TAG, "Gemini motion prompt failed; using offline rules", e)
-                fallbackReason = "Gemini unavailable"
+                Log.w(TAG, "AI motion prompt failed; using offline rules", e)
+                fallbackReason = "AI unavailable"
             }
         }
 
