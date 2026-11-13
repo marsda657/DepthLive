@@ -89,6 +89,7 @@ googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.W
 dependencies {
   implementation(project(":render-engine"))
   implementation(libs.mediapipe.tasks.vision)
+  implementation("org.tensorflow:tensorflow-lite:2.16.1")
   implementation(platform(libs.androidx.compose.bom))
   // implementation(libs.accompanist.permissions)
   implementation(libs.androidx.activity.compose)

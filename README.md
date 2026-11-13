@@ -7,10 +7,12 @@ reactivity requires explicit permission in settings.
 
 ## Current limitations
 
-- MediaPipe DeepLab identifies foreground objects locally. Sky, water, terrain
-  and depth are still heuristic estimates, not model-derived semantic layers
-  or a depth model. If MediaPipe fails, diagnostics identify the heuristic
-  fallback.
+- MediaPipe DeepLab identifies foreground objects locally. Sky, water and
+  terrain are still heuristic classifications, not model-derived semantic
+  layers. MiDaS estimates relative inverse depth from the photo; each layer's
+  average drives its parallax and depth ordering. It is not metric distance and
+  the renderer does not yet displace individual pixels using the depth map.
+  Diagnostics identify model failures and heuristic fallbacks.
 - The Compose preview and wallpaper use the same OpenGL renderer in the
   `render-engine` Android library. Preview and wallpaper run in separate GL
   contexts; behavior still needs verification on devices.
@@ -42,6 +44,17 @@ Subsequent builds can use the verified model in
 `app/build/generated/mediapipeAssets/deeplabv3.tflite`, including with
 `--offline`. The model recognizes the 20 Pascal VOC object classes, not
 sky or water. Review the model's applicable distribution terms before release.
+
+The build also downloads MiDaS v2.1 small (about 63 MiB) from the pinned
+revision of the [MiDaS Android example](https://github.com/shubham0204/MiDaS-Android),
+and verifies its SHA-256. It is packaged uncompressed; analysis makes no
+network requests. Offline builds require the verified model at
+`app/build/generated/mediapipeAssets/midas_v21_small.tflite`. The model's
+256x256 input is resized from the photo and produces relative, not physical,
+depth; predictions can be wrong, especially on unusual scenes. MiDaS is
+distributed under the MIT license (see `app/src/main/assets/licenses/MIDAS.txt`).
+The added model increases app size and processing cost; latency, memory and
+battery impact need device measurements.
 
 To enable the LLM, open the Motion Prompt card, choose Mistral AI (default) or
 Grok (xAI), paste your own API key and switch the option on. Keys are encrypted

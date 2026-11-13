@@ -9,13 +9,14 @@ import com.example.model.ParsedLayer
 import com.example.model.ProcessedScene
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.IOException
 import java.util.UUID
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
 /**
- * Combines MediaPipe object segmentation with approximate landscape layers and depth.
+ * Combines MediaPipe object segmentation, approximate landscape layers and relative depth.
  */
 object ImageSegmentationEngine {
     private const val TAG = "SegmentationEngine"
@@ -98,6 +99,21 @@ object ImageSegmentationEngine {
         // Pass 2: Spatial smoothing with safe bounds check
         smoothClassificationMask(classMask, w, h)
 
+        val estimatedDepth = try {
+            MidasDepthEstimator.estimate(context.applicationContext, scaled).resize(w, h)
+        } catch (e: IOException) {
+            Log.e(TAG, "Depth model unavailable; using layer depth estimates", e)
+            null
+        } catch (e: RuntimeException) {
+            Log.e(TAG, "Depth estimation failed; using layer depth estimates", e)
+            null
+        } catch (e: LinkageError) {
+            Log.e(TAG, "Depth runtime unavailable; using layer depth estimates", e)
+            null
+        }
+        val fallbackDepths = floatArrayOf(0.05f, 0.25f, 0.45f, 0.65f, 0.95f)
+        val depthValues = estimatedDepth ?: FloatArray(totalPixels) { fallbackDepths[classMask[it].toInt()] }
+
         // Pass 3: Extract individual layer bitmaps
         val layers = mutableListOf<ParsedLayer>()
         val layerTypes = listOf(
@@ -111,11 +127,13 @@ object ImageSegmentationEngine {
         for ((type, classId) in layerTypes) {
             val layerPixels = IntArray(totalPixels)
             var count = 0
+            var depthSum = 0.0
 
             for (i in 0 until totalPixels) {
                 if (classMask[i].toInt() == classId) {
                     layerPixels[i] = pixels[i]
                     count++
+                    depthSum += depthValues[i]
                 } else {
                     layerPixels[i] = 0x00000000 // transparent
                 }
@@ -130,7 +148,7 @@ object ImageSegmentationEngine {
                 ParsedLayer(
                     type = type,
                     bitmap = layerBmp,
-                    depth = type.defaultDepth,
+                    depth = if (count > 0) (depthSum / count).toFloat() else type.defaultDepth,
                     coveragePercent = coverage,
                     pixelCount = count,
                     isEnabled = true
@@ -139,8 +157,7 @@ object ImageSegmentationEngine {
         }
 
         // Pass 4: Build depth heatmap
-        val depths = floatArrayOf(0.05f, 0.25f, 0.45f, 0.65f, 0.95f)
-        val depthBmp = generateDepthHeatmap(FloatArray(totalPixels) { depths[classMask[it].toInt()] }, w, h)
+        val depthBmp = generateDepthHeatmap(depthValues, w, h)
 
         ProcessedScene(
             id = UUID.randomUUID().toString(),
@@ -150,8 +167,9 @@ object ImageSegmentationEngine {
             layers = layers,
             width = w,
             height = h,
-            analysisMethod = if (foregroundMask != null) "MediaPipe objects; estimated landscape and depth"
-                else "Heuristic fallback; estimated landscape and depth"
+            analysisMethod = (if (foregroundMask != null) "MediaPipe objects; heuristic landscape"
+                else "Heuristic segmentation fallback") +
+                (if (estimatedDepth != null) "; MiDaS relative depth" else "; heuristic depth fallback")
         )
     }
 

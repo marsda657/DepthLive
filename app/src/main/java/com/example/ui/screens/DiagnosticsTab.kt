@@ -160,9 +160,9 @@ fun DiagnosticsTab(paddingValues: PaddingValues) {
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("Distant (Sky / 0.05)", fontSize = 10.sp, color = Color(0xFF4FC3F7))
-                        Text("Midground (0.50)", fontSize = 10.sp, color = Color(0xFF10B981))
-                        Text("Foreground (0.95)", fontSize = 10.sp, color = Color(0xFFF43F5E))
+                        Text("Farther (0)", fontSize = 10.sp, color = Color(0xFF4FC3F7))
+                        Text("Relative (0.5)", fontSize = 10.sp, color = Color(0xFF10B981))
+                        Text("Nearer (1)", fontSize = 10.sp, color = Color(0xFFF43F5E))
                     }
                 }
             }
