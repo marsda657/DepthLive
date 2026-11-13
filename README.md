@@ -72,3 +72,37 @@ offline rules. Model names (`mistral-small-latest`, `grok-3-mini`) are in
 layers in `Ade20kLayers` (sky 3; water 22, 27, 61, 114, 129; and so on). No
 model is bundled yet, so sky, water and ground remain heuristic until a
 suitably licensed model is validated and registered.
+
+### Candidate: DeepLab MobileNetV2 ADE20K
+
+The [TF Hub archive](https://github.com/tensorflow/tfhub.dev/blob/master/assets/docs/sayakpaul/deeplabv3-mobilenetv2-ade20k/1.md)
+identifies Sayak Paul's ADE20K model as Apache-2.0. Its
+[version 2 documentation](https://github.com/tensorflow/tfhub.dev/blob/master/assets/docs/sayakpaul/deeplabv3-mobilenetv2-ade20k/1/default/lite/2.md)
+describes dynamic-range quantization, metadata, and the original TensorFlow
+MobileNetV2 ADE20K checkpoint. The
+[Kaggle version 2 download](https://www.kaggle.com/api/v1/models/spsayakpaul/deeplabv3-mobilenetv2/tfLite/ade20k/2/download)
+could not be accessed in the development environment; its bytes and behavior
+have not been verified.
+
+As an alternative, the author's
+[GitHub v0.8.0 release](https://github.com/sayakpaul/Adventures-in-TensorFlow-Lite/releases/tag/v0.8.0)
+contains `mnv2_ade20k_tflite.tar.gz` (SHA-256
+`08e419abedc31fc0840b815bdd46eebc55aefdb96af1db5ec777367ec01d0c6c`).
+Its `deeplabv3_mnv2_ade20k_train_2018_12_03.tflite` file has SHA-256
+`0acdf37d5db38e681646ce79557c2af516650ecca5377b15c9cb171f751556cb`.
+This is not verified to be byte-identical to Kaggle version 2. Its metadata
+states Apache-2.0; its 151 embedded labels match the ADE20K object list with
+`others` at index 0. Its float32 RGB input is `[1, 513, 513, 3]`, normalized
+to `[-1, 1]`, and its float32 output is `[1, 513, 513, 151]` logits.
+A desktop LiteRT inference on the bundled sample landscape identified sky,
+water, trees and mountains in representative image regions. This is a smoke
+test, not a quantitative accuracy evaluation or an Android device test.
+
+The output tensor alone occupies approximately 152 MiB, despite the model file
+being about 2.3 MiB. Peak memory, inference latency, device compatibility,
+and integration with the existing foreground model still need validation before
+enabling this candidate. No candidate above is downloaded or bundled by the
+app. [ADE20K's terms](https://ade20k.csail.mit.edu/terms/index.html) restrict
+use of its images to non-commercial research and education; the effect, if
+any, on distributing trained weights requires separate legal review. An
+Apache-2.0 model notice is not itself a determination of those dataset terms.
