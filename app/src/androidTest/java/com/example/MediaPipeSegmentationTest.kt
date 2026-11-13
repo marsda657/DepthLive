@@ -18,10 +18,12 @@ class MediaPipeSegmentationTest {
         val bitmap = context.assets.open("sample_landscape.jpg").use { BitmapFactory.decodeStream(it) }
         val scene = ImageSegmentationEngine.processImage(context, bitmap, "Test")
         assertTrue(scene.analysisMethod.startsWith("MediaPipe objects"))
+        assertTrue(scene.analysisMethod.contains("ADE20K landscape"))
         assertTrue(scene.analysisMethod.contains("MiDaS relative depth"))
         assertEquals(5, scene.layers.size)
         assertEquals(scene.width * scene.height, scene.layers.sumOf { it.pixelCount })
         assertTrue(scene.layers.all { it.depth in 0f..1f })
+        assertTrue(scene.layers.all { it.pixelCount > 0 })
         val depthPixels = IntArray(scene.width * scene.height)
         scene.depthMapBitmap.getPixels(depthPixels, 0, scene.width, 0, 0, scene.width, scene.height)
         assertTrue(depthPixels.toSet().size > 5)

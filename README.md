@@ -8,10 +8,11 @@ reactivity requires explicit permission in settings.
 ## Current limitations
 
 - MediaPipe DeepLab identifies foreground objects locally. Sky, water and
-  terrain are still heuristic classifications, not model-derived semantic
-  layers. MiDaS estimates relative inverse depth from the photo; each layer's
-  average drives its parallax and depth ordering. It is not metric distance and
-  the renderer does not yet displace individual pixels using the depth map.
+  terrain use a second on-device ADE20K DeepLab model for semantic layers.
+  Unmapped ADE20K classes retain the existing image-based heuristic behavior.
+  MiDaS estimates relative inverse depth from the photo; each layer's average
+  drives its parallax and depth ordering. It is not metric distance and the
+  renderer does not yet displace individual pixels using the depth map.
   Diagnostics identify model failures and heuristic fallbacks.
 - The Compose preview and wallpaper use the same OpenGL renderer in the
   `render-engine` Android library. Preview and wallpaper run in separate GL
@@ -45,6 +46,13 @@ Subsequent builds can use the verified model in
 `--offline`. The model recognizes the 20 Pascal VOC object classes, not
 sky or water. Review the model's applicable distribution terms before release.
 
+The build also downloads the ADE20K DeepLabV3 MobileNetV2 model from Sayak
+Paul's pinned GitHub release, verifies the archive and extracted model SHA-256
+values, then packages it as an on-device MediaPipe asset. Model tensor details,
+inference checks, license provenance and the remaining dataset-terms question
+are documented below. Landscape-model inference logs and falls back to
+heuristics on runtime, native-library or out-of-memory failure.
+
 The build also downloads MiDaS v2.1 small (about 63 MiB) from the pinned
 revision of the [MiDaS Android example](https://github.com/shubham0204/MiDaS-Android),
 and verifies its SHA-256. It is packaged uncompressed; analysis makes no
@@ -67,45 +75,52 @@ offline rules. Model names (`mistral-small-latest`, `grok-3-mini`) are in
 
 ## Landscape model slot
 
-`ImageSegmentationEngine.landscapeSegmenter` accepts any model that outputs
-1-based ADE20K-150 labels (`LandscapeSegmenter`/`LandscapeMask`). Labels map to
-layers in `Ade20kLayers` (sky 3; water 22, 27, 61, 114, 129; and so on). No
-model is bundled yet, so sky, water and ground remain heuristic until a
-suitably licensed model is validated and registered.
+`ImageSegmentationEngine.landscapeSegmenter` defaults to
+`MediaPipeLandscapeSegmenter`, which returns 1-based ADE20K-150 labels as a
+`LandscapeMask`. `Ade20kLayers` maps sky (3), water (22, 27, 61, 114, 129),
+earth/ground (14, 95), terrain, vegetation and buildings to the five
+wallpaper layers. Setting the segmenter to `null` retains the heuristic
+fallback. Diagnostics report "ADE20K landscape" when model inference succeeds.
 
-### Candidate: DeepLab MobileNetV2 ADE20K
+### ADE20K model provenance and validation
 
 The [TF Hub archive](https://github.com/tensorflow/tfhub.dev/blob/master/assets/docs/sayakpaul/deeplabv3-mobilenetv2-ade20k/1.md)
-identifies Sayak Paul's ADE20K model as Apache-2.0. Its
+identifies Sayak Paul's ADE20K model as Apache-2.0. The author's repository is
+also Apache-2.0, with its license added at commit
+`98609376ff6052b0f3bc327227ac7fdb03da7f83`. Its
 [version 2 documentation](https://github.com/tensorflow/tfhub.dev/blob/master/assets/docs/sayakpaul/deeplabv3-mobilenetv2-ade20k/1/default/lite/2.md)
 describes dynamic-range quantization, metadata, and the original TensorFlow
-MobileNetV2 ADE20K checkpoint. The
+MobileNetV2 ADE20K checkpoint. The GitHub API lists 10 assets in the v0.8.0
+release, with only one ADE20K MobileNetV2 asset and no ADE20K float32 fallback.
+The
 [Kaggle version 2 download](https://www.kaggle.com/api/v1/models/spsayakpaul/deeplabv3-mobilenetv2/tfLite/ade20k/2/download)
-could not be accessed in the development environment; its bytes and behavior
-have not been verified.
+could not be accessed in the development environment; its bytes have not been
+verified against the author release.
 
-As an alternative, the author's
+The app uses the author's
 [GitHub v0.8.0 release](https://github.com/sayakpaul/Adventures-in-TensorFlow-Lite/releases/tag/v0.8.0)
 contains `mnv2_ade20k_tflite.tar.gz` (SHA-256
 `08e419abedc31fc0840b815bdd46eebc55aefdb96af1db5ec777367ec01d0c6c`).
 Its `deeplabv3_mnv2_ade20k_train_2018_12_03.tflite` file has SHA-256
 `0acdf37d5db38e681646ce79557c2af516650ecca5377b15c9cb171f751556cb`.
-This is not verified to be byte-identical to Kaggle version 2. Its metadata
-states Apache-2.0; its 151 embedded labels match the ADE20K object list with
+This release is from the same author and ADE20K checkpoint as Kaggle version 2,
+but is not verified to be byte-identical. Its metadata states Apache-2.0; its
+151 embedded labels match the ADE20K object list with
 `others` at index 0. Its float32 RGB input is `[1, 513, 513, 3]`, normalized
 to `[-1, 1]`, and its float32 output is `[1, 513, 513, 151]` logits.
-A desktop LiteRT inference on the bundled sample landscape identified sky,
-water, trees and mountains in representative image regions. This is a smoke
-test, not a quantitative accuracy evaluation or an Android device test.
-Desktop MediaPipe's category-mask API produced the same labels at those points;
-the Python process peaked at approximately 572 MiB RSS, including the Python
-runtime and libraries.
+A desktop LiteRT and MediaPipe category-mask inference on the bundled sample
+landscape identified sky, water, trees, mountains and ground. A separate
+generated-scene smoke test produced ADE20K building and house labels. These
+are not quantitative accuracy measurements or Android device tests. The
+Python MediaPipe process peaked at approximately 572 MiB RSS, including the
+Python runtime and libraries.
 
 The output tensor alone occupies approximately 152 MiB, despite the model file
-being about 2.3 MiB. Peak memory, inference latency, device compatibility,
-and integration with the existing foreground model still need validation before
-enabling this candidate. No candidate above is downloaded or bundled by the
-app. [ADE20K's terms](https://ade20k.csail.mit.edu/terms/index.html) restrict
+being about 2.3 MiB. The app combines its category mask with the existing
+foreground model and falls back to heuristics if landscape inference encounters
+an out-of-memory condition. Peak memory, latency and device compatibility still
+need Android device validation.
+[ADE20K's terms](https://ade20k.csail.mit.edu/terms/index.html) restrict
 use of its images to non-commercial research and education; the effect, if
 any, on distributing trained weights requires separate legal review. An
 Apache-2.0 model notice is not itself a determination of those dataset terms.

@@ -1,0 +1,22 @@
+DeepLabV3 MobileNetV2 ADE20K TensorFlow Lite model
+
+The model was released by Sayak Paul in the v0.8.0 release of
+https://github.com/sayakpaul/Adventures-in-TensorFlow-Lite
+and is licensed under Apache License 2.0. The repository's license was added
+at commit 98609376ff6052b0f3bc327227ac7fdb03da7f83. The full license text is
+provided in APACHE-2.0.txt.
+
+Release archive SHA-256:
+08e419abedc31fc0840b815bdd46eebc55aefdb96af1db5ec777367ec01d0c6c
+Extracted model SHA-256:
+0acdf37d5db38e681646ce79557c2af516650ecca5377b15c9cb171f751556cb
+
+The model was generated from the TensorFlow DeepLab
+mobilenetv2_ade20k_train_2018_12_03 checkpoint. The Kaggle/TF Hub model card
+also identifies this checkpoint and Apache 2.0, but this release artifact has
+not been verified byte-identical to Kaggle version 2.
+
+The ADE20K dataset terms apply separately to its images and annotations. See
+https://ade20k.csail.mit.edu/terms/index.html. This notice does not determine
+whether those dataset terms affect downstream use or distribution of model
+weights; that question requires separate legal review.

@@ -21,9 +21,9 @@ import kotlin.math.min
 object ImageSegmentationEngine {
     private const val TAG = "SegmentationEngine"
 
-    /** Set once a validated ADE20K-style model is bundled; null keeps the heuristic landscape layers. */
+    /** Set to null to use heuristic landscape layers instead of ADE20K. */
     @Volatile
-    var landscapeSegmenter: LandscapeSegmenter? = null
+    var landscapeSegmenter: LandscapeSegmenter? = MediaPipeLandscapeSegmenter
 
     suspend fun processImage(
         context: Context,
@@ -62,6 +62,12 @@ object ImageSegmentationEngine {
         } catch (e: RuntimeException) {
             Log.e(TAG, "Landscape model failed; using heuristic layers", e)
             null
+        } catch (e: LinkageError) {
+            Log.e(TAG, "Landscape model runtime unavailable; using heuristic layers", e)
+            null
+        } catch (e: OutOfMemoryError) {
+            Log.e(TAG, "Landscape model exhausted memory; using heuristic layers", e)
+            null
         }
 
         val classMask = ByteArray(totalPixels)
@@ -92,11 +98,12 @@ object ImageSegmentationEngine {
                 } else {
                     false
                 }
+                val landscapeLayer = landscapeMask?.layerAt(x, y, w, h)
 
                 if (foregroundMask?.contains(x, y, w, h) ?: isForegroundCandidate) {
                     classMask[idx] = 4 // FOREGROUND
-                } else if (landscapeMask?.layerAt(x, y, w, h) != null) {
-                    classMask[idx] = when (landscapeMask.layerAt(x, y, w, h)!!) {
+                } else if (landscapeLayer != null) {
+                    classMask[idx] = when (landscapeLayer) {
                         LayerType.SKY -> 0
                         LayerType.BACKGROUND -> 1
                         LayerType.WATER -> 2
@@ -177,6 +184,11 @@ object ImageSegmentationEngine {
 
         // Pass 4: Build depth heatmap
         val depthBmp = generateDepthHeatmap(depthValues, w, h)
+        val analysisMethod = listOf(
+            if (foregroundMask != null) "MediaPipe objects" else "heuristic foreground",
+            if (landscapeMask != null) "ADE20K landscape" else "heuristic landscape",
+            if (estimatedDepth != null) "MiDaS relative depth" else "heuristic depth fallback"
+        ).joinToString("; ")
 
         ProcessedScene(
             id = UUID.randomUUID().toString(),
@@ -186,9 +198,7 @@ object ImageSegmentationEngine {
             layers = layers,
             width = w,
             height = h,
-            analysisMethod = (if (foregroundMask != null) "MediaPipe objects; " + (if (landscapeMask != null) "model landscape" else "heuristic landscape")
-                else "Heuristic segmentation fallback") +
-                (if (estimatedDepth != null) "; MiDaS relative depth" else "; heuristic depth fallback")
+            analysisMethod = analysisMethod
         )
     }
 
