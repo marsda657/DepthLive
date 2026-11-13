@@ -21,6 +21,10 @@ import kotlin.math.min
 object ImageSegmentationEngine {
     private const val TAG = "SegmentationEngine"
 
+    /** Set once a validated ADE20K-style model is bundled; null keeps the heuristic landscape layers. */
+    @Volatile
+    var landscapeSegmenter: LandscapeSegmenter? = null
+
     suspend fun processImage(
         context: Context,
         original: Bitmap,
@@ -50,6 +54,13 @@ object ImageSegmentationEngine {
             null
         } catch (e: LinkageError) {
             Log.e(TAG, "MediaPipe native runtime unavailable; using heuristic layers", e)
+            null
+        }
+
+        val landscapeMask = try {
+            landscapeSegmenter?.segment(context.applicationContext, scaled)
+        } catch (e: RuntimeException) {
+            Log.e(TAG, "Landscape model failed; using heuristic layers", e)
             null
         }
 
@@ -84,6 +95,14 @@ object ImageSegmentationEngine {
 
                 if (foregroundMask?.contains(x, y, w, h) ?: isForegroundCandidate) {
                     classMask[idx] = 4 // FOREGROUND
+                } else if (landscapeMask?.layerAt(x, y, w, h) != null) {
+                    classMask[idx] = when (landscapeMask.layerAt(x, y, w, h)!!) {
+                        LayerType.SKY -> 0
+                        LayerType.BACKGROUND -> 1
+                        LayerType.WATER -> 2
+                        LayerType.GROUND -> 3
+                        LayerType.FOREGROUND -> 4
+                    }.toByte()
                 } else if (yRatio < 0.38f && (isBlueHue || (value > 0.70f && sat < 0.28f))) {
                     classMask[idx] = 0 // SKY
                 } else if (yRatio in 0.32f..0.54f && (value < 0.65f || hue in 200.0f..280.0f || (sat < 0.28f && value > 0.35f))) {
@@ -167,7 +186,7 @@ object ImageSegmentationEngine {
             layers = layers,
             width = w,
             height = h,
-            analysisMethod = (if (foregroundMask != null) "MediaPipe objects; heuristic landscape"
+            analysisMethod = (if (foregroundMask != null) "MediaPipe objects; " + (if (landscapeMask != null) "model landscape" else "heuristic landscape")
                 else "Heuristic segmentation fallback") +
                 (if (estimatedDepth != null) "; MiDaS relative depth" else "; heuristic depth fallback")
         )

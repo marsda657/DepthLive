@@ -64,3 +64,11 @@ sent, over HTTPS, to the OpenAI-compatible chat endpoint. Replies must be one of
 the 12 preset IDs. Without a key, connectivity or a valid reply, the prompt uses
 offline rules. Model names (`mistral-small-latest`, `grok-3-mini`) are in
 `LlmProvider.kt` and have not been exercised against the live services.
+
+## Landscape model slot
+
+`ImageSegmentationEngine.landscapeSegmenter` accepts any model that outputs
+1-based ADE20K-150 labels (`LandscapeSegmenter`/`LandscapeMask`). Labels map to
+layers in `Ade20kLayers` (sky 3; water 22, 27, 61, 114, 129; and so on). No
+model is bundled yet, so sky, water and ground remain heuristic until a
+suitably licensed model is validated and registered.
