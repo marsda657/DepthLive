@@ -33,9 +33,9 @@ object ImageSegmentationEngine {
         val srcW = max(1, original.width)
         val srcH = max(1, original.height)
 
-        // Downsample to 540px width for fast, reliable, crash-free mobile processing
-        val targetWidth = 540
-        val targetHeight = max(1, (srcH * (targetWidth.toFloat() / srcW)).toInt())
+        val scale = min(1f, min(540f / srcW, 1080f / srcH))
+        val targetWidth = max(1, (srcW * scale).toInt())
+        val targetHeight = max(1, (srcH * scale).toInt())
         val resized = Bitmap.createScaledBitmap(original, targetWidth, targetHeight, true)
         val scaled = if (resized.config == Bitmap.Config.ARGB_8888) resized
             else resized.copy(Bitmap.Config.ARGB_8888, false)

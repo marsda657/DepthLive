@@ -4,7 +4,6 @@ import android.app.WallpaperManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.graphics.BitmapFactory
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -80,10 +79,8 @@ import com.example.model.MotionPreset
 import com.example.model.PresetsData
 import com.example.ui.components.GlLivePreview
 import com.example.wallpaper.DepthLiveWallpaperService
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 /**
  * Preview Screen with interactive OpenGL live canvas, one-tap photo picker,
@@ -142,11 +139,7 @@ fun PreviewTab(
         if (uri != null) {
             coroutineScope.launch {
                 try {
-                    val bitmap = withContext(Dispatchers.IO) {
-                        context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) }
-                    }
-                    requireNotNull(bitmap) { "Could not decode the selected photo" }
-                    WallpaperRepository.setCustomPhoto(context, bitmap, "User Photo")
+                    WallpaperRepository.setCustomPhoto(context, uri, "User Photo")
                     Toast.makeText(context, "Photo analyzed", Toast.LENGTH_SHORT).show()
                 } catch (e: CancellationException) {
                     throw e
@@ -181,7 +174,7 @@ fun PreviewTab(
                 .clip(RoundedCornerShape(20.dp))
         ) {
             GlLivePreview(
-                scene = scene,
+                scene = if (isProcessing) null else scene,
                 config = config,
                 modifier = Modifier.fillMaxSize()
             )
@@ -219,6 +212,7 @@ fun PreviewTab(
                 onClick = {
                     setAsLiveWallpaper(context)
                 },
+                enabled = !isProcessing && scene != null,
                 modifier = Modifier
                     .weight(1.3f)
                     .height(52.dp)
@@ -249,6 +243,7 @@ fun PreviewTab(
                         PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                     )
                 },
+                enabled = !isProcessing,
                 modifier = Modifier
                     .weight(1f)
                     .height(52.dp)
@@ -287,10 +282,17 @@ fun PreviewTab(
             OutlinedButton(
                 onClick = {
                     coroutineScope.launch {
-                        WallpaperRepository.loadBundledSampleScene(context)
-                        Toast.makeText(context, "Loaded Alpine Lake 5-layer scene", Toast.LENGTH_SHORT).show()
+                        try {
+                            WallpaperRepository.loadBundledSampleScene(context)
+                            Toast.makeText(context, "Loaded Alpine Lake scene", Toast.LENGTH_SHORT).show()
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            Toast.makeText(context, "Failed to load sample: ${e.message}", Toast.LENGTH_SHORT).show()
+                        }
                     }
                 },
+                enabled = !isProcessing,
                 shape = RoundedCornerShape(10.dp),
                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                 modifier = Modifier.height(34.dp).testTag("load_sample_scene_button")

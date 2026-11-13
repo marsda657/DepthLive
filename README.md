@@ -4,6 +4,9 @@ DepthLive is an Android live wallpaper prototype. It stores a selected photo
 locally, analyzes it on-device, and renders the layers with OpenGL ES. Manual
 rain and snow overlays and 12 offline motion presets are included. Microphone
 reactivity requires explicit permission in settings.
+Picked photos are copied into app-internal storage; the saved source is decoded
+at screen-bounded resolution and reanalyzed after process recreation. The
+preview shows a loading state until analysis completes.
 
 ## Current limitations
 
