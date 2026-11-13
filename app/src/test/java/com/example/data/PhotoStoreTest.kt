@@ -3,6 +3,7 @@ package com.example.data
 import android.content.ContentProvider
 import android.content.ContentValues
 import android.content.Context
+import android.content.pm.ProviderInfo
 import android.database.Cursor
 import android.net.Uri
 import android.os.ParcelFileDescriptor
@@ -13,7 +14,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
@@ -36,8 +36,7 @@ class PhotoStoreTest {
         }
         val expected = source.readBytes()
         TestPhotoProvider.source = source
-        val provider = Robolectric.buildContentProvider(TestPhotoProvider::class.java).create().get()
-        ShadowContentResolver.registerProviderInternal("test.photos", provider)
+        registerProvider(context)
 
         val store = PhotoStore(context)
         store.copyFrom(Uri.parse("content://test.photos/photo"))
@@ -56,8 +55,7 @@ class PhotoStoreTest {
         val source = File(context.cacheDir, "invalid-photo")
         source.writeText("not an image")
         TestPhotoProvider.source = source
-        val provider = Robolectric.buildContentProvider(TestPhotoProvider::class.java).create().get()
-        ShadowContentResolver.registerProviderInternal("test.photos", provider)
+        registerProvider(context)
 
         try {
             store.copyFrom(Uri.parse("content://test.photos/photo"))
@@ -85,6 +83,12 @@ class PhotoStoreTest {
         val screen = context.resources.displayMetrics
         assertTrue(decoded.width <= screen.widthPixels)
         assertTrue(decoded.height <= screen.heightPixels)
+    }
+
+    private fun registerProvider(context: Context) {
+        val provider = TestPhotoProvider()
+        provider.attachInfo(context, ProviderInfo().apply { authority = "test.photos" })
+        ShadowContentResolver.registerProviderInternal("test.photos", provider)
     }
 }
 
