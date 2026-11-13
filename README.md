@@ -47,6 +47,11 @@ the wrapper downloads Gradle 9.3.1. The AI Studio signing
 configuration also expects the keystore files described in
 `app/build.gradle.kts` when building installable packages.
 
+GitHub Actions runs debug builds, unit tests, and Android lint for both modules.
+Successful runs upload a debug APK; test and lint reports are also retained.
+The CI-generated debug signing key is ephemeral, so its APK is not a release
+build and cannot reliably update an APK signed by a different run.
+
 The first build downloads Google's MediaPipe DeepLab v3 model from
 `storage.googleapis.com` and verifies its SHA-256 against the official
 MediaPipe sample. This happens at build time, not while analyzing photos.

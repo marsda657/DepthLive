@@ -1,0 +1,50 @@
+name: Android CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Create temporary debug signing key
+        run: |
+          keytool -genkeypair -keystore debug.keystore -storepass android \
+            -keypass android -alias androiddebugkey -keyalg RSA -keysize 2048 \
+            -validity 3650 -dname "CN=Android Debug,O=Android,C=US"
+
+      - name: Build, test and lint
+        run: ./gradlew --no-daemon --continue :app:assembleDebug :app:testDebugUnitTest :render-engine:testDebugUnitTest :app:lintDebug :render-engine:lintDebug
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: depthlive-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload test and lint reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-test-and-lint-reports
+          path: |
+            app/build/reports/
+            render-engine/build/reports/
+          if-no-files-found: ignore
+          retention-days: 7
