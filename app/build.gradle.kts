@@ -66,6 +66,7 @@ android {
   androidResources {
     noCompress += "tflite"
   }
+  sourceSets.getByName("main").assets.srcDir(layout.buildDirectory.dir("generated/mediapipeAssets").get().asFile)
   testOptions { unitTests { isIncludeAndroidResources = true } }
   dependenciesInfo {
     includeInApk = false

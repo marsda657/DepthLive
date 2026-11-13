@@ -1,11 +1,10 @@
 import java.net.URI
 import java.security.MessageDigest
-import com.android.build.api.variant.ApplicationAndroidComponentsExtension
 import org.gradle.api.DefaultTask
-import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.Input
-import org.gradle.api.tasks.OutputDirectory
+import org.gradle.api.tasks.OutputFile
 import org.gradle.api.tasks.TaskAction
 
 abstract class PrepareSegmentationModel : DefaultTask() {
@@ -29,16 +28,13 @@ abstract class PrepareSegmentationModel : DefaultTask() {
     @get:Input
     abstract val archiveEntry: Property<String>
 
-    @get:Input
-    abstract val modelName: Property<String>
-
-    @get:OutputDirectory
-    abstract val outputDirectory: DirectoryProperty
+    @get:OutputFile
+    abstract val modelFile: RegularFileProperty
 
     @TaskAction
     fun prepare() {
         val expectedModelChecksum = modelChecksum.orNull?.takeIf(String::isNotEmpty) ?: checksum.get()
-        val destination = outputDirectory.file(modelName.get()).get().asFile
+        val destination = modelFile.get().asFile
         if (destination.isFile && sha256(destination) == expectedModelChecksum) return
         check(!offline.get()) {
             "The verified model ${destination.name} is missing. Run once without --offline to download it."
@@ -159,8 +155,7 @@ val prepareSegmentationModel = tasks.register<PrepareSegmentationModel>("prepare
     offline.set(gradle.startParameter.isOffline)
     modelUrl.set("https://storage.googleapis.com/mediapipe-models/image_segmenter/deeplab_v3/float32/1/deeplab_v3.tflite")
     checksum.set("ff36e24d40547fe9e645e2f4e8745d1876d6e38b332d39a82f0bf0f5d1d561b3")
-    modelName.set("deeplabv3.tflite")
-    outputDirectory.set(layout.buildDirectory.dir("generated/mediapipeAssets/foreground"))
+    modelFile.set(layout.buildDirectory.file("generated/mediapipeAssets/deeplabv3.tflite"))
     outputs.upToDateWhen { false }
 }
 
@@ -168,8 +163,7 @@ val prepareDepthModel = tasks.register<PrepareSegmentationModel>("prepareDepthMo
     offline.set(gradle.startParameter.isOffline)
     modelUrl.set("https://raw.githubusercontent.com/shubham0204/MiDaS-Android/df0ffb215d42e73a1c47d0bee67c98c3ddd11c6e/app/src/main/assets/depth_model.tflite")
     checksum.set("93d871071edff1218973ce25ee27ce95ccd20450c70a55e1b89efa3f5a772cdd")
-    modelName.set("midas_v21_small.tflite")
-    outputDirectory.set(layout.buildDirectory.dir("generated/mediapipeAssets/depth"))
+    modelFile.set(layout.buildDirectory.file("generated/mediapipeAssets/midas_v21_small.tflite"))
     outputs.upToDateWhen { false }
 }
 
@@ -179,15 +173,10 @@ val prepareLandscapeModel = tasks.register<PrepareSegmentationModel>("prepareLan
     checksum.set("08e419abedc31fc0840b815bdd46eebc55aefdb96af1db5ec777367ec01d0c6c")
     modelChecksum.set("0acdf37d5db38e681646ce79557c2af516650ecca5377b15c9cb171f751556cb")
     archiveEntry.set("deeplabv3_mnv2_ade20k_train_2018_12_03.tflite")
-    modelName.set("ade20k_deeplabv3.tflite")
-    outputDirectory.set(layout.buildDirectory.dir("generated/mediapipeAssets/landscape"))
+    modelFile.set(layout.buildDirectory.file("generated/mediapipeAssets/ade20k_deeplabv3.tflite"))
     outputs.upToDateWhen { false }
 }
 
-extensions.getByType<ApplicationAndroidComponentsExtension>().onVariants { variant ->
-    variant.sources.assets?.apply {
-        addGeneratedSourceDirectory(prepareSegmentationModel, PrepareSegmentationModel::outputDirectory)
-        addGeneratedSourceDirectory(prepareDepthModel, PrepareSegmentationModel::outputDirectory)
-        addGeneratedSourceDirectory(prepareLandscapeModel, PrepareSegmentationModel::outputDirectory)
-    }
+tasks.named("preBuild") {
+    dependsOn(prepareSegmentationModel, prepareDepthModel, prepareLandscapeModel)
 }
