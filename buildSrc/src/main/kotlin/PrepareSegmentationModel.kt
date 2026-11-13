@@ -1,3 +1,4 @@
+import java.io.File
 import java.net.URI
 import java.security.MessageDigest
 import org.gradle.api.DefaultTask
@@ -149,36 +150,4 @@ abstract class PrepareSegmentationModel : DefaultTask() {
         }
         return digest.digest().joinToString("") { "%02x".format(it) }
     }
-}
-
-run {
-val prepareSegmentationModel = tasks.register<PrepareSegmentationModel>("prepareSegmentationModel") {
-    offline.set(gradle.startParameter.isOffline)
-    modelUrl.set("https://storage.googleapis.com/mediapipe-models/image_segmenter/deeplab_v3/float32/1/deeplab_v3.tflite")
-    checksum.set("ff36e24d40547fe9e645e2f4e8745d1876d6e38b332d39a82f0bf0f5d1d561b3")
-    modelFile.set(layout.buildDirectory.file("generated/mediapipeAssets/deeplabv3.tflite"))
-    outputs.upToDateWhen { false }
-}
-
-val prepareDepthModel = tasks.register<PrepareSegmentationModel>("prepareDepthModel") {
-    offline.set(gradle.startParameter.isOffline)
-    modelUrl.set("https://raw.githubusercontent.com/shubham0204/MiDaS-Android/df0ffb215d42e73a1c47d0bee67c98c3ddd11c6e/app/src/main/assets/depth_model.tflite")
-    checksum.set("93d871071edff1218973ce25ee27ce95ccd20450c70a55e1b89efa3f5a772cdd")
-    modelFile.set(layout.buildDirectory.file("generated/mediapipeAssets/midas_v21_small.tflite"))
-    outputs.upToDateWhen { false }
-}
-
-val prepareLandscapeModel = tasks.register<PrepareSegmentationModel>("prepareLandscapeModel") {
-    offline.set(gradle.startParameter.isOffline)
-    modelUrl.set("https://github.com/sayakpaul/Adventures-in-TensorFlow-Lite/releases/download/v0.8.0/mnv2_ade20k_tflite.tar.gz")
-    checksum.set("08e419abedc31fc0840b815bdd46eebc55aefdb96af1db5ec777367ec01d0c6c")
-    modelChecksum.set("0acdf37d5db38e681646ce79557c2af516650ecca5377b15c9cb171f751556cb")
-    archiveEntry.set("deeplabv3_mnv2_ade20k_train_2018_12_03.tflite")
-    modelFile.set(layout.buildDirectory.file("generated/mediapipeAssets/ade20k_deeplabv3.tflite"))
-    outputs.upToDateWhen { false }
-}
-
-tasks.named("preBuild") {
-    dependsOn(prepareSegmentationModel, prepareDepthModel, prepareLandscapeModel)
-}
 }
