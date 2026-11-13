@@ -48,7 +48,8 @@ configuration also expects the keystore files described in
 `app/build.gradle.kts` when building installable packages.
 
 GitHub Actions runs debug builds, unit tests, and Android lint for both modules.
-Successful runs upload a debug APK; test and lint reports are also retained.
+Runs upload a debug APK when the build produces one, even if tests or lint fail;
+test and lint reports are also retained. CI uses JDK 21 for Robolectric's API 36 tests.
 The CI-generated debug signing key is ephemeral, so its APK is not a release
 build and cannot reliably update an APK signed by a different run.
 
