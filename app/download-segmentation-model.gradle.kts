@@ -151,6 +151,7 @@ abstract class PrepareSegmentationModel : DefaultTask() {
     }
 }
 
+run {
 val prepareSegmentationModel = tasks.register<PrepareSegmentationModel>("prepareSegmentationModel") {
     offline.set(gradle.startParameter.isOffline)
     modelUrl.set("https://storage.googleapis.com/mediapipe-models/image_segmenter/deeplab_v3/float32/1/deeplab_v3.tflite")
@@ -179,4 +180,5 @@ val prepareLandscapeModel = tasks.register<PrepareSegmentationModel>("prepareLan
 
 tasks.named("preBuild") {
     dependsOn(prepareSegmentationModel, prepareDepthModel, prepareLandscapeModel)
+}
 }

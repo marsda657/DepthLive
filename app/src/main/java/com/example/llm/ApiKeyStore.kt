@@ -27,11 +27,15 @@ class ApiKeyStore(context: Context) {
     }
 
     fun put(provider: LlmProvider, key: String) {
-        if (key.isBlank()) { prefs.edit().remove(provider.name).apply(); return }
+        require(key.isNotBlank()) { "API key must not be blank" }
         val cipher = Cipher.getInstance(TRANSFORM)
         cipher.init(Cipher.ENCRYPT_MODE, secretKey())
         val out = cipher.iv + cipher.doFinal(key.trim().toByteArray())
         prefs.edit().putString(provider.name, Base64.encodeToString(out, Base64.NO_WRAP)).apply()
+    }
+
+    fun remove(provider: LlmProvider) {
+        prefs.edit().remove(provider.name).apply()
     }
 
     private fun secretKey(): SecretKey {

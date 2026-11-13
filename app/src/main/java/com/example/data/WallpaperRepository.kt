@@ -14,6 +14,7 @@ import com.example.model.ShaderConfig
 import com.example.segmentation.ImageSegmentationEngine
 import com.example.weather.WeatherRepository
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -161,11 +162,14 @@ object WallpaperRepository {
         try {
             // WallpaperService.Engine can be recreated after the app process is killed. Save the
             // original locally so the selected photo can be segmented again on the next launch.
-            saveCustomPhoto(context.applicationContext, bitmap)
             val scene = ImageSegmentationEngine.processImage(context, bitmap, name)
+            saveCustomPhoto(context.applicationContext, bitmap)
             _activeScene.value = scene
-        } catch (e: Throwable) {
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
             Log.e(TAG, "Error processing custom photo: ${e.message}", e)
+            throw e
         } finally {
             _isProcessing.value = false
         }
@@ -182,14 +186,11 @@ object WallpaperRepository {
                 output.fd.sync()
             }
             if (!temporary.renameTo(destination)) {
-                // Rename can fail on unusual filesystems; retain the old valid image until the
-                // replacement has been fully written, then use a direct copy as a fallback.
-                temporary.copyTo(destination, overwrite = true)
-                temporary.delete()
+                error("Could not replace the saved photo")
             }
         } catch (e: Exception) {
             temporary.delete()
-            Log.w(TAG, "Could not persist selected photo; it will not survive process restart", e)
+            throw e
         }
     }
 

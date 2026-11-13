@@ -81,6 +81,7 @@ import com.example.model.PresetsData
 import com.example.ui.components.GlLivePreview
 import com.example.wallpaper.DepthLiveWallpaperService
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -112,16 +113,22 @@ fun PreviewTab(
     fun applyPrompt(text: String) {
         if (isGeneratingPrompt || text.isBlank()) return
         isGeneratingPrompt = true
+        val requestedProvider = provider
+        val baseConfig = config
         val selector: (suspend (String) -> String)? =
             if (useAi) { value ->
-                val key = keyStore.get(provider) ?: throw IllegalStateException("No API key saved")
-                ChatMotionSelector.select(provider, key, value)
+                val key = keyStore.get(requestedProvider) ?: throw IllegalStateException("No API key saved")
+                ChatMotionSelector.select(requestedProvider, key, value)
             } else null
         coroutineScope.launch {
             try {
-                val result = MotionPromptManager.parseMotionPrompt(text, config, selector)
-                WallpaperRepository.updateConfig(result.config)
-                promptStatus = result.summary
+                val result = MotionPromptManager.parseMotionPrompt(text, baseConfig, selector)
+                if (WallpaperRepository.shaderConfig.value == baseConfig) {
+                    WallpaperRepository.updateConfig(result.config)
+                    promptStatus = result.summary
+                } else {
+                    promptStatus = "Settings changed while generating; apply the prompt again."
+                }
             } finally {
                 isGeneratingPrompt = false
             }
@@ -135,13 +142,14 @@ fun PreviewTab(
         if (uri != null) {
             coroutineScope.launch {
                 try {
-                    val stream = context.contentResolver.openInputStream(uri)
-                    val bitmap = BitmapFactory.decodeStream(stream)
-                    stream?.close()
-                    if (bitmap != null) {
-                        WallpaperRepository.setCustomPhoto(context, bitmap, "User Photo")
-                        Toast.makeText(context, "Photo segmented into 5 parallax layers!", Toast.LENGTH_SHORT).show()
+                    val bitmap = withContext(Dispatchers.IO) {
+                        context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) }
                     }
+                    requireNotNull(bitmap) { "Could not decode the selected photo" }
+                    WallpaperRepository.setCustomPhoto(context, bitmap, "User Photo")
+                    Toast.makeText(context, "Photo analyzed", Toast.LENGTH_SHORT).show()
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     Toast.makeText(context, "Failed to load photo: ${e.message}", Toast.LENGTH_SHORT).show()
                 }
@@ -348,8 +356,11 @@ fun PreviewTab(
 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     LlmProvider.values().forEach { p ->
-                        if (p == provider) Button(onClick = {}) { Text(p.label, fontSize = 12.sp) }
-                        else OutlinedButton(onClick = { provider = p }) { Text(p.label, fontSize = 12.sp) }
+                        if (p == provider) Button(onClick = {}, enabled = !isGeneratingPrompt) { Text(p.label, fontSize = 12.sp) }
+                        else OutlinedButton(onClick = {
+                            provider = p
+                            keyInput = ""
+                        }, enabled = !isGeneratingPrompt) { Text(p.label, fontSize = 12.sp) }
                     }
                 }
 
@@ -370,7 +381,14 @@ fun PreviewTab(
                         keyStore.put(provider, keyInput)
                         keyInput = ""
                         keySaved = keyStore.hasKey(provider)
-                    }) { Text("Save", fontSize = 12.sp) }
+                    }, enabled = keyInput.isNotBlank() && !isGeneratingPrompt) { Text("Save", fontSize = 12.sp) }
+                    if (keySaved) {
+                        OutlinedButton(onClick = {
+                            keyStore.remove(provider)
+                            keyInput = ""
+                            keySaved = false
+                        }, enabled = !isGeneratingPrompt) { Text("Delete", fontSize = 12.sp) }
+                    }
                 }
 
                 Row(
