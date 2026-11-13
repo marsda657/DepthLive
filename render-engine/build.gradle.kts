@@ -10,6 +10,10 @@ android {
         minSdk = 24
     }
 
+    dependencies {
+        testImplementation(libs.junit)
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11

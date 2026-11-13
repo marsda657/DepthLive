@@ -304,8 +304,8 @@ fun LayerTuningTab(paddingValues: PaddingValues) {
             }
 
             ToggleRow(
-                label = "Battery Cooler Palette & Limiter (<20%)",
-                description = "Shifts color tone cooler and caps frame rate to 30 fps under 20% battery",
+                label = "Battery Cooler Palette (<20%)",
+                description = "Adds a cool tint under 20% battery; the 30 fps cap always applies",
                 checked = config.batterySaverCoolPalette,
                 onCheckedChange = { WallpaperRepository.updateConfig(config.copy(batterySaverCoolPalette = it)) }
             )
@@ -316,7 +316,7 @@ fun LayerTuningTab(paddingValues: PaddingValues) {
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Target Frame Rate", fontSize = 13.sp, color = Color.White)
+                Text("Maximum Frame Rate", fontSize = 13.sp, color = Color.White)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     listOf(60, 30, 15).forEach { fps ->
                         FilterChip(

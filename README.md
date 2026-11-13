@@ -17,8 +17,8 @@ presets. Microphone reactivity requires explicit permission in settings.
 - Automatic Open-Meteo weather is disabled: a weather request conflicts with
   the requirement that only motion-prompt LLM calls use the network. Rain and
   snow can be selected manually.
-- Frame rate can be configured at 60, 30, or 15 fps and is capped at 30 below
-  20% battery. Automatic performance-based degradation is not implemented.
+- The renderer adjusts between 60, 30, and 15 fps based on measured frame
+  cadence, subject to the selected maximum and a 30 fps cap below 20% battery.
   The under-3%-per-day battery target and frame rates require device testing.
 - The wallpaper suspends rendering and sensors when hidden or in Doze, but
   lifecycle behavior, unlock animation, and audio need verification on devices.

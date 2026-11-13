@@ -18,7 +18,6 @@ import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.exp
 import kotlin.math.max
-import kotlin.math.min
 import kotlin.math.sin
 
 /**
@@ -78,8 +77,8 @@ class SceneRenderer(
 
     // Timing & Frame Rate Governor
     private var startTimeMs = SystemClock.uptimeMillis()
-    private var lastFrameTimeNs = System.nanoTime()
-    @Volatile var currentFps: Float = 60.0f
+    private val frameRateGovernor = FrameRateGovernor()
+    @Volatile var currentFps: Float = 0.0f
         private set
     @Volatile var frameRenderTimeMs: Float = 0.0f
         private set
@@ -132,14 +131,19 @@ class SceneRenderer(
     }
 
     override fun onDrawFrame(gl: GL10?) {
+        frameRateGovernor.configure(config.targetFps, isLowBattery)
+        val delayNs = frameRateGovernor.delayBeforeFrameNs(System.nanoTime())
+        if (delayNs > 0) {
+            try {
+                Thread.sleep(delayNs / 1_000_000L, (delayNs % 1_000_000L).toInt())
+            } catch (e: InterruptedException) {
+                Thread.currentThread().interrupt()
+                return
+            }
+        }
         val frameStartNs = System.nanoTime()
-
-        // Adaptive frame rate limiter
-        val targetFps = if (isLowBattery) {
-            min(config.targetFps, 30)
-        } else {
-            config.targetFps
-        }.coerceIn(1, 60)
+        frameRateGovernor.onFrame(frameStartNs)
+        currentFps = frameRateGovernor.measuredFps
 
         if (pendingTextureReload) {
             pendingTextureReload = false
@@ -152,6 +156,7 @@ class SceneRenderer(
         if (scene == null) {
             // Draw placeholder background gradient
             drawFallbackScreen()
+            frameRenderTimeMs = (System.nanoTime() - frameStartNs) / 1_000_000.0f
             return
         }
 
@@ -264,27 +269,7 @@ class SceneRenderer(
             renderAmbientParticles(timeSec, unlockProgress)
         }
 
-        // Track FPS and frame time
-        val frameEndNs = System.nanoTime()
-        frameRenderTimeMs = (frameEndNs - frameStartNs) / 1_000_000.0f
-        val deltaNs = frameEndNs - lastFrameTimeNs
-        lastFrameTimeNs = frameEndNs
-        if (deltaNs > 0) {
-            val instantFps = 1_000_000_000.0f / deltaNs
-            currentFps = currentFps * 0.9f + instantFps * 0.1f // smooth EMA
-        }
-
-        // Throttle frame time to respect battery budget (e.g., 30fps target)
-        if (targetFps < 60) {
-            val frameBudgetMs = (1000 / targetFps).toLong()
-            val elapsedMs = (frameEndNs - frameStartNs) / 1_000_000L
-            val sleepMs = frameBudgetMs - elapsedMs
-            if (sleepMs > 2) {
-                try {
-                    Thread.sleep(sleepMs)
-                } catch (ignored: InterruptedException) {}
-            }
-        }
+        frameRenderTimeMs = (System.nanoTime() - frameStartNs) / 1_000_000.0f
     }
 
     private fun renderAmbientParticles(timeSec: Float, unlockProgress: Float) {
