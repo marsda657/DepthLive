@@ -73,12 +73,11 @@ jobs:
             adb install apk/*.apk
             adb logcat -c
             adb shell am start -W -n com.aistudio.depthlive.vwpqzx/com.example.MainActivity
-            sleep 90
-            adb logcat -d -v threadtime > startup-logcat.txt
-            if ! adb shell pidof com.aistudio.depthlive.vwpqzx; then
-              grep -A 30 -B 5 -E 'FATAL EXCEPTION|Fatal signal|AndroidRuntime' startup-logcat.txt || true
-              exit 1
-            fi
+            sleep 5
+            adb logcat -d -v threadtime -s AndroidRuntime:E libc:F GlShaderUtils:E WallpaperRepository:D SegmentationEngine:E > startup-logcat.txt
+            sleep 60
+            adb logcat -b crash -d -v threadtime >> startup-logcat.txt
+            adb shell pidof com.aistudio.depthlive.vwpqzx
       - name: Upload startup log
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
