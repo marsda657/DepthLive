@@ -79,7 +79,7 @@ jobs:
             adb logcat -d -v threadtime -s AndroidRuntime:E libc:F GlShaderUtils:E WallpaperRepository:D SegmentationEngine:E >> startup-logcat.txt
             adb logcat -b crash -d -v threadtime >> startup-logcat.txt
             adb shell pidof com.aistudio.depthlive.vwpqzx
-            adb shell dumpsys activity activities | grep 'mResumedActivity.*com.aistudio.depthlive.vwpqzx'
+            adb shell dumpsys activity top | grep 'ACTIVITY com.aistudio.depthlive.vwpqzx/com.example.MainActivity'
             grep 'Scene segmentation completed' startup-logcat.txt
             ! grep -E 'GlShaderUtils:|FATAL EXCEPTION|Fatal signal' startup-logcat.txt
       - name: Upload startup log
