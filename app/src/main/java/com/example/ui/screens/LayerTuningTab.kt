@@ -57,7 +57,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
-import com.example.audio.AudioReactiveManager
 import com.example.data.WallpaperRepository
 import com.example.model.ParticleType
 import com.example.model.ShaderConfig
@@ -75,7 +74,6 @@ fun LayerTuningTab(paddingValues: PaddingValues) {
     ) { isGranted ->
         if (isGranted) {
             WallpaperRepository.updateConfig(config.copy(audioReactive = true))
-            AudioReactiveManager.startListening(context)
             Toast.makeText(context, "Microphone audio-reactive mode enabled", Toast.LENGTH_SHORT).show()
         } else {
             WallpaperRepository.updateConfig(config.copy(audioReactive = false))
@@ -283,7 +281,7 @@ fun LayerTuningTab(paddingValues: PaddingValues) {
 
         // 7. AMOLED & POWER SAVER
         TuningCard(
-            title = "AMOLED & Battery Budget (<3%/day)",
+            title = "AMOLED & Battery Settings",
             subtitle = "Darkens true-black regions to turn OLED pixels completely off",
             icon = Icons.Default.DarkMode,
             iconTint = Color(0xFFE2E8F0)
@@ -306,8 +304,8 @@ fun LayerTuningTab(paddingValues: PaddingValues) {
             }
 
             ToggleRow(
-                label = "Battery Cooler Palette & Limiter (<20%)",
-                description = "Shifts color tone cooler and caps frame rate to 30 fps under 20% battery",
+                label = "Battery Cooler Palette (<20%)",
+                description = "Adds a cool tint under 20% battery; the 30 fps cap always applies",
                 checked = config.batterySaverCoolPalette,
                 onCheckedChange = { WallpaperRepository.updateConfig(config.copy(batterySaverCoolPalette = it)) }
             )
@@ -318,7 +316,7 @@ fun LayerTuningTab(paddingValues: PaddingValues) {
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Target Frame Rate", fontSize = 13.sp, color = Color.White)
+                Text("Maximum Frame Rate", fontSize = 13.sp, color = Color.White)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     listOf(60, 30, 15).forEach { fps ->
                         FilterChip(
@@ -354,13 +352,11 @@ fun LayerTuningTab(paddingValues: PaddingValues) {
                         ) == PackageManager.PERMISSION_GRANTED
                         if (hasPerm) {
                             WallpaperRepository.updateConfig(config.copy(audioReactive = true))
-                            AudioReactiveManager.startListening(context)
                         } else {
                             permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                         }
                     } else {
                         WallpaperRepository.updateConfig(config.copy(audioReactive = false))
-                        AudioReactiveManager.stopListening()
                     }
                 }
             )

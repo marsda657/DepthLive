@@ -18,7 +18,6 @@ import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.exp
 import kotlin.math.max
-import kotlin.math.min
 import kotlin.math.sin
 
 /**
@@ -27,6 +26,7 @@ import kotlin.math.sin
  */
 class SceneRenderer(
     private val context: Context,
+    @Volatile
     var config: ShaderConfig = ShaderConfig()
 ) : GLSurfaceView.Renderer {
 
@@ -55,14 +55,14 @@ class SceneRenderer(
     private val texCoordBuffer: FloatBuffer = GlShaderUtils.createFloatBuffer(QUAD_TEX_COORDS)
 
     // Current Scene & Textures
-    var currentScene: ProcessedScene? = null
+    @Volatile var currentScene: ProcessedScene? = null
         set(value) {
             field = value
             pendingTextureReload = true
         }
 
     private val layerTextures = IntArray(5) // Index corresponds to LayerType ordinal
-    private var pendingTextureReload = false
+    @Volatile private var pendingTextureReload = false
 
     // GL Programs
     private var skyProgram = 0
@@ -77,53 +77,41 @@ class SceneRenderer(
 
     // Timing & Frame Rate Governor
     private var startTimeMs = SystemClock.uptimeMillis()
-    private var lastFrameTimeNs = System.nanoTime()
-    var currentFps: Float = 60.0f
+    private val frameRateGovernor = FrameRateGovernor()
+    @Volatile var currentFps: Float = 0.0f
         private set
-    var frameRenderTimeMs: Float = 0.0f
+    @Volatile var frameRenderTimeMs: Float = 0.0f
         private set
 
     // Interactive Sensor & Touch state
-    var tiltX: Float = 0.0f // -4 to +4 degrees
-    var tiltY: Float = 0.0f
-    var homeScrollOffset: Float = 0.5f // 0.0 to 1.0
+    @Volatile var tiltX: Float = 0.0f // -4 to +4 degrees
+    @Volatile var tiltY: Float = 0.0f
+    @Volatile var homeScrollOffset: Float = 0.5f // 0.0 to 1.0
 
-    // Touch ripples: up to 3 concurrent ripples
-    data class Ripple(var x: Float, var y: Float, var birthTimeMs: Long, var active: Boolean = false)
-    private val ripples = Array(3) { Ripple(0.5f, 0.5f, 0L) }
+    private data class Ripple(val x: Float, val y: Float, val birthTimeMs: Long)
+    @Volatile private var ripple: Ripple? = null
 
     // Unlock / Wake event
-    private var unlockTriggerTimeMs = 0L
-    private var isUnlockAnimating = false
+    @Volatile private var unlockTriggerTimeMs = 0L
 
     // Real-time Audio energy (0.0 to 1.0)
-    var audioEnergy: Float = 0.0f
+    @Volatile var audioEnergy: Float = 0.0f
 
     // Battery & Thermal status
-    var batteryPercent: Int = 100
-    var isLowBattery: Boolean = false
+    @Volatile var batteryPercent: Int = 100
+    @Volatile var isLowBattery: Boolean = false
 
     // Weather state
-    var weatherCode: Int = 0 // 0=Clear, 61=Rain, 71=Snow, etc.
-    var isRaining: Boolean = false
-    var isSnowing: Boolean = false
+    @Volatile var weatherCode: Int = 0 // 0=Clear, 61=Rain, 71=Snow, etc.
+    @Volatile var isRaining: Boolean = false
+    @Volatile var isSnowing: Boolean = false
 
     fun triggerTouchRipple(xNorm: Float, yNorm: Float) {
-        val now = SystemClock.uptimeMillis()
-        // Replace oldest or inactive ripple
-        var slot = ripples.indexOfFirst { !it.active }
-        if (slot == -1) {
-            slot = ripples.indices.minByOrNull { ripples[it].birthTimeMs } ?: 0
-        }
-        ripples[slot].x = xNorm
-        ripples[slot].y = yNorm
-        ripples[slot].birthTimeMs = now
-        ripples[slot].active = true
+        ripple = Ripple(xNorm.coerceIn(0f, 1f), yNorm.coerceIn(0f, 1f), SystemClock.uptimeMillis())
     }
 
     fun triggerUnlockAnimation() {
         unlockTriggerTimeMs = SystemClock.uptimeMillis()
-        isUnlockAnimating = true
     }
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
@@ -143,18 +131,23 @@ class SceneRenderer(
     }
 
     override fun onDrawFrame(gl: GL10?) {
-        val frameStartNs = System.nanoTime()
-
-        // Adaptive frame rate limiter
-        val targetFps = if (isLowBattery && config.batterySaverCoolPalette) {
-            min(config.targetFps, 30)
-        } else {
-            config.targetFps
+        frameRateGovernor.configure(config.targetFps, isLowBattery)
+        val delayNs = frameRateGovernor.delayBeforeFrameNs(System.nanoTime())
+        if (delayNs > 0) {
+            try {
+                Thread.sleep(delayNs / 1_000_000L, (delayNs % 1_000_000L).toInt())
+            } catch (e: InterruptedException) {
+                Thread.currentThread().interrupt()
+                return
+            }
         }
+        val frameStartNs = System.nanoTime()
+        frameRateGovernor.onFrame(frameStartNs)
+        currentFps = frameRateGovernor.measuredFps
 
         if (pendingTextureReload) {
-            loadSceneTextures()
             pendingTextureReload = false
+            loadSceneTextures()
         }
 
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
@@ -163,6 +156,7 @@ class SceneRenderer(
         if (scene == null) {
             // Draw placeholder background gradient
             drawFallbackScreen()
+            frameRenderTimeMs = (System.nanoTime() - frameStartNs) / 1_000_000.0f
             return
         }
 
@@ -172,18 +166,18 @@ class SceneRenderer(
         // Calculate Sun angle (0 to 2*PI tracking real 24h clock)
         val cal = Calendar.getInstance()
         val minutesOfDay = cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE)
-        val sunAngle = (minutesOfDay / 1440.0f) * 2.0f * PI.toFloat()
+        val sunAngle = ((minutesOfDay - 360) / 1440.0f) * 2.0f * PI.toFloat()
 
         // Unlock progress (0.0 -> 1.0 over 800ms)
         var unlockProgress = 1.0f
-        if (isUnlockAnimating) {
-            val elapsed = nowMs - unlockTriggerTimeMs
-            if (elapsed < config.unlockScatterDurationMs) {
+        val unlockTime = unlockTriggerTimeMs
+        if (unlockTime != 0L) {
+            val elapsed = nowMs - unlockTime
+            if (elapsed in 0 until config.unlockScatterDurationMs) {
                 val t = elapsed.toFloat() / config.unlockScatterDurationMs
                 // Elastic damping settle curve
                 unlockProgress = 1.0f - (1.0f - t) * exp(-t * 3.5f) * cos(t * 10.0f)
             } else {
-                isUnlockAnimating = false
                 unlockProgress = 1.0f
             }
         }
@@ -225,10 +219,11 @@ class SceneRenderer(
             setUniform1f(program, "uUnlockProgress", unlockProgress)
 
             // Touch ripples (center and age)
-            val r = ripples[0]
-            val age0 = if (r.active) (nowMs - r.birthTimeMs) / 1000.0f else 999.0f
-            setUniform2f(program, "uRippleCenter", r.x, r.y)
+            val r = ripple
+            val age0 = if (r != null) (nowMs - r.birthTimeMs) / 1000.0f else 999.0f
+            setUniform2f(program, "uRippleCenter", r?.x ?: 0.5f, r?.y ?: 0.5f)
             setUniform1f(program, "uRippleAge", age0)
+            setUniform1f(program, "uRippleDuration", config.touchRippleDurationMs.coerceAtLeast(1L) / 1000f)
             setUniform1f(program, "uRippleIntensity", config.touchRippleIntensity)
 
             // AMOLED & Battery Cooler
@@ -240,7 +235,8 @@ class SceneRenderer(
             when (layer.type) {
                 LayerType.SKY -> {
                     setUniform1f(program, "uCloudSpeed", config.cloudDriftSpeed)
-                    setUniform1f(program, "uSunAngle", if (config.celestialSunTracking) sunAngle else 0.0f)
+                    setUniform1f(program, "uSunAngle", sunAngle)
+                    setUniform1i(program, "uSunTracking", if (config.celestialSunTracking) 1 else 0)
                     setUniform1f(program, "uSkyLightShift", config.skyLightShift)
                 }
                 LayerType.WATER -> {
@@ -269,31 +265,12 @@ class SceneRenderer(
         }
 
         // Draw particle overlay (dust, fireflies, rain, snow)
-        if (config.particleType != ParticleType.NONE || isRaining || isSnowing) {
+        if (config.particleType != ParticleType.NONE || (config.weatherReactivity &&
+                config.autoWeatherOverlays && (isRaining || isSnowing))) {
             renderAmbientParticles(timeSec, unlockProgress)
         }
 
-        // Track FPS and frame time
-        val frameEndNs = System.nanoTime()
-        frameRenderTimeMs = (frameEndNs - frameStartNs) / 1_000_000.0f
-        val deltaNs = frameEndNs - lastFrameTimeNs
-        lastFrameTimeNs = frameEndNs
-        if (deltaNs > 0) {
-            val instantFps = 1_000_000_000.0f / deltaNs
-            currentFps = currentFps * 0.9f + instantFps * 0.1f // smooth EMA
-        }
-
-        // Throttle frame time to respect battery budget (e.g., 30fps target)
-        if (targetFps < 60) {
-            val frameBudgetMs = (1000 / targetFps).toLong()
-            val elapsedMs = (frameEndNs - frameStartNs) / 1_000_000L
-            val sleepMs = frameBudgetMs - elapsedMs
-            if (sleepMs > 2) {
-                try {
-                    Thread.sleep(sleepMs)
-                } catch (ignored: InterruptedException) {}
-            }
-        }
+        frameRenderTimeMs = (System.nanoTime() - frameStartNs) / 1_000_000.0f
     }
 
     private fun renderAmbientParticles(timeSec: Float, unlockProgress: Float) {
@@ -314,8 +291,10 @@ class SceneRenderer(
         setUniform1f(particleProgram, "uAudioEnergy", if (config.audioReactive) audioEnergy else 0.0f)
 
         val particleCode = when {
-            isRaining || config.particleType == ParticleType.RAIN_DROPS -> 3
-            isSnowing || config.particleType == ParticleType.SNOW_FLAKES -> 4
+            config.particleType == ParticleType.RAIN_DROPS -> 3
+            config.particleType == ParticleType.SNOW_FLAKES -> 4
+            config.weatherReactivity && config.autoWeatherOverlays && isRaining -> 3
+            config.weatherReactivity && config.autoWeatherOverlays && isSnowing -> 4
             config.particleType == ParticleType.FIREFLIES -> 1
             config.particleType == ParticleType.CHERRY_PETALS -> 2
             else -> 0 // FLOATING_DUST
@@ -360,6 +339,7 @@ class SceneRenderer(
     private fun buildShaders() {
         // Vertex Shader common to all layer quads
         val vertexShaderCode = """
+            precision mediump float;
             attribute vec2 aPosition;
             attribute vec2 aTexCoord;
             
@@ -410,6 +390,7 @@ class SceneRenderer(
             uniform float uLayerDepth;
             uniform vec2 uRippleCenter;
             uniform float uRippleAge;
+            uniform float uRippleDuration;
             uniform float uRippleIntensity;
             uniform int uAmoledMode;
             uniform float uAmoledThreshold;
@@ -417,11 +398,12 @@ class SceneRenderer(
             uniform float uAudioEnergy;
 
             vec2 applyTouchRipple(vec2 uv) {
-                if (uRippleAge < 2.0 && uRippleIntensity > 0.0) {
+                float age = uRippleAge - (1.0 - uLayerDepth) * 0.12;
+                if (age >= 0.0 && age < uRippleDuration && uRippleIntensity > 0.0) {
                     vec2 diff = uv - uRippleCenter;
                     float dist = length(diff);
                     if (dist > 0.001) {
-                        float wave = sin(dist * 38.0 - uRippleAge * 10.0) * exp(-dist * 4.5) * max(0.0, 1.0 - uRippleAge / 2.0);
+                        float wave = sin(dist * 38.0 - age * 10.0) * exp(-dist * 4.5) * max(0.0, 1.0 - age / uRippleDuration);
                         uv += normalize(diff) * wave * 0.025 * uRippleIntensity * (uLayerDepth + 0.2);
                     }
                 }
@@ -453,6 +435,7 @@ class SceneRenderer(
             $commonFragmentFunctions
             uniform float uCloudSpeed;
             uniform float uSunAngle;
+            uniform int uSunTracking;
             uniform float uSkyLightShift;
 
             void main() {
@@ -465,7 +448,7 @@ class SceneRenderer(
                 if (color.a < 0.01) discard;
 
                 // Celestial lighting shift (solar angle)
-                if (uSunAngle != 0.0) {
+                if (uSunTracking == 1) {
                     float sunElevation = sin(uSunAngle);
                     if (sunElevation > 0.0) {
                         // Warm golden sun tint during daylight
@@ -561,7 +544,8 @@ class SceneRenderer(
             }
 
             void main() {
-                vec2 uv = vTexCoord;
+                float scatter = max(0.0, 1.0 - uUnlockProgress);
+                vec2 uv = (vTexCoord - 0.5) / (1.0 + scatter * 0.5) + 0.5;
                 vec4 color = vec4(0.0);
 
                 if (uParticleType == 3) {

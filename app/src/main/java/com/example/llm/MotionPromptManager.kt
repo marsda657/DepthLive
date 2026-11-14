@@ -5,7 +5,9 @@ import com.example.model.ParticleType
 import com.example.model.PresetsData
 import com.example.model.ShaderConfig
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.Locale
 
 data class PromptResult(
@@ -21,8 +23,33 @@ data class PromptResult(
 object MotionPromptManager {
     private const val TAG = "MotionPromptManager"
 
-    suspend fun parseMotionPrompt(promptText: String, baseConfig: ShaderConfig): PromptResult = withContext(Dispatchers.Default) {
+    suspend fun parseMotionPrompt(
+        promptText: String,
+        baseConfig: ShaderConfig,
+        aiSelector: (suspend (String) -> String)? = null
+    ): PromptResult = withContext(Dispatchers.Default) {
         val lower = promptText.lowercase(Locale.ROOT).trim()
+        var fallbackReason: String? = null
+
+        if (aiSelector != null) {
+            try {
+                val selection = withTimeoutOrNull(12_000L) { aiSelector(promptText.take(500)) }
+                val preset = PresetsData.presets.firstOrNull { it.id == selection?.trim() }
+                if (preset != null) {
+                    return@withContext PromptResult(
+                        config = applyMotionPreset(baseConfig, preset.config),
+                        summary = "AI selected ${preset.name}",
+                        matchedPresetName = preset.name
+                    )
+                }
+                fallbackReason = if (selection == null) "AI request timed out" else "AI returned an invalid preset"
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "AI motion prompt failed; using offline rules", e)
+                fallbackReason = "AI unavailable"
+            }
+        }
 
         // 1. Check if matches one of the 12 offline presets directly
         for (preset in PresetsData.presets) {
@@ -30,8 +57,8 @@ object MotionPromptManager {
                 lower.contains(preset.id.replace("_", " "))
             ) {
                 return@withContext PromptResult(
-                    config = preset.config,
-                    summary = "Matched preset: ${preset.name}",
+                    config = applyMotionPreset(baseConfig, preset.config),
+                    summary = listOfNotNull(fallbackReason, "Offline preset: ${preset.name}").joinToString(" — "),
                     matchedPresetName = preset.name
                 )
             }
@@ -46,7 +73,6 @@ object MotionPromptManager {
         var parallax = baseConfig.parallaxDegrees
         var particle = baseConfig.particleType
         var amoled = baseConfig.amoledMode
-        var audio = baseConfig.audioReactive
         var sunTracking = baseConfig.celestialSunTracking
         var coolPalette = baseConfig.batterySaverCoolPalette
 
@@ -114,10 +140,9 @@ object MotionPromptManager {
             tags.add("Golden Hour Bloom")
         }
 
-        // Audio & Music
+        // Microphone activation requires the explicit permission flow in settings.
         if (lower.contains("audio") || lower.contains("music") || lower.contains("sound") || lower.contains("beat")) {
-            audio = true
-            tags.add("Microphone Audio-Reactive")
+            tags.add("Enable audio in settings to react to sound")
         }
 
         // Floating dust / fireflies
@@ -135,17 +160,30 @@ object MotionPromptManager {
             parallaxDegrees = parallax.coerceIn(0.5f, 4.0f),
             particleType = particle,
             amoledMode = amoled,
-            audioReactive = audio,
             celestialSunTracking = sunTracking,
             batterySaverCoolPalette = coolPalette
         )
 
-        val desc = if (tags.isEmpty()) "Applied motion preset with customized dynamics" else tags.joinToString(" • ")
+        val desc = if (tags.isEmpty()) "Offline rules applied" else tags.joinToString(" • ")
 
         PromptResult(
             config = generatedConfig,
-            summary = desc,
+            summary = listOfNotNull(fallbackReason, desc).joinToString(" — "),
             matchedPresetName = "Custom Dynamic Preset"
         )
     }
+
+    private fun applyMotionPreset(base: ShaderConfig, motion: ShaderConfig): ShaderConfig = base.copy(
+        cloudDriftSpeed = motion.cloudDriftSpeed,
+        skyLightShift = motion.skyLightShift,
+        waterRippleSpeed = motion.waterRippleSpeed,
+        waterRippleAmplitude = motion.waterRippleAmplitude,
+        waterWaveFrequency = motion.waterWaveFrequency,
+        causticShimmer = motion.causticShimmer,
+        foregroundSwaySpeed = motion.foregroundSwaySpeed,
+        foregroundSwayAmplitude = motion.foregroundSwayAmplitude,
+        parallaxDegrees = motion.parallaxDegrees,
+        touchRippleIntensity = motion.touchRippleIntensity,
+        particleType = motion.particleType
+    )
 }

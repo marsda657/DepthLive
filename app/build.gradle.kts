@@ -63,6 +63,10 @@ android {
     compose = true
     buildConfig = true
   }
+  androidResources {
+    noCompress += "tflite"
+  }
+  sourceSets.getByName("main").assets.srcDir(layout.buildDirectory.dir("generated/mediapipeAssets").get().asFile)
   testOptions { unitTests { isIncludeAndroidResources = true } }
   dependenciesInfo {
     includeInApk = false
@@ -83,8 +87,10 @@ googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.W
 // Some unused dependencies are commented out below instead of being removed.
 // This makes it easy to add them back in the future if needed.
 dependencies {
+  implementation(project(":render-engine"))
+  implementation(libs.mediapipe.tasks.vision)
+  implementation("org.tensorflow:tensorflow-lite:2.16.1")
   implementation(platform(libs.androidx.compose.bom))
-  implementation(platform(libs.firebase.bom))
   // implementation(libs.accompanist.permissions)
   implementation(libs.androidx.activity.compose)
   // implementation(libs.androidx.camera.camera2)
@@ -107,7 +113,6 @@ dependencies {
   implementation(libs.androidx.room.runtime)
   implementation(libs.coil.compose)
   implementation(libs.converter.moshi)
-  implementation(libs.firebase.ai)
   // Uncomment to use Firestore:
   // implementation(libs.firebase.firestore)
 
@@ -117,8 +122,6 @@ dependencies {
   // implementation(libs.androidx.credentials)
   // implementation(libs.androidx.credentials.play.services)
   // implementation(libs.googleid)
-  implementation(libs.firebase.appcheck.recaptcha)
-  implementation(libs.firebase.appcheck.debug)
   implementation(libs.kotlinx.coroutines.android)
   implementation(libs.kotlinx.coroutines.core)
   implementation(libs.logging.interceptor)
@@ -141,4 +144,36 @@ dependencies {
   debugImplementation(libs.androidx.compose.ui.tooling)
   "ksp"(libs.androidx.room.compiler)
   "ksp"(libs.moshi.kotlin.codegen)
+}
+
+run {
+val prepareSegmentationModel = tasks.register<PrepareSegmentationModel>("prepareSegmentationModel") {
+    offline.set(gradle.startParameter.isOffline)
+    modelUrl.set("https://storage.googleapis.com/mediapipe-models/image_segmenter/deeplab_v3/float32/1/deeplab_v3.tflite")
+    checksum.set("ff36e24d40547fe9e645e2f4e8745d1876d6e38b332d39a82f0bf0f5d1d561b3")
+    modelFile.set(layout.buildDirectory.file("generated/mediapipeAssets/deeplabv3.tflite"))
+    outputs.upToDateWhen { false }
+}
+
+val prepareDepthModel = tasks.register<PrepareSegmentationModel>("prepareDepthModel") {
+    offline.set(gradle.startParameter.isOffline)
+    modelUrl.set("https://raw.githubusercontent.com/shubham0204/MiDaS-Android/df0ffb215d42e73a1c47d0bee67c98c3ddd11c6e/app/src/main/assets/depth_model.tflite")
+    checksum.set("93d871071edff1218973ce25ee27ce95ccd20450c70a55e1b89efa3f5a772cdd")
+    modelFile.set(layout.buildDirectory.file("generated/mediapipeAssets/midas_v21_small.tflite"))
+    outputs.upToDateWhen { false }
+}
+
+val prepareLandscapeModel = tasks.register<PrepareSegmentationModel>("prepareLandscapeModel") {
+    offline.set(gradle.startParameter.isOffline)
+    modelUrl.set("https://github.com/sayakpaul/Adventures-in-TensorFlow-Lite/releases/download/v0.8.0/mnv2_ade20k_tflite.tar.gz")
+    checksum.set("08e419abedc31fc0840b815bdd46eebc55aefdb96af1db5ec777367ec01d0c6c")
+    modelChecksum.set("0acdf37d5db38e681646ce79557c2af516650ecca5377b15c9cb171f751556cb")
+    archiveEntry.set("deeplabv3_mnv2_ade20k_train_2018_12_03.tflite")
+    modelFile.set(layout.buildDirectory.file("generated/mediapipeAssets/ade20k_deeplabv3.tflite"))
+    outputs.upToDateWhen { false }
+}
+
+tasks.named("preBuild") {
+    dependsOn(prepareSegmentationModel, prepareDepthModel, prepareLandscapeModel)
+}
 }

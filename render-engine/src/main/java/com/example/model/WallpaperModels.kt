@@ -41,6 +41,7 @@ data class ProcessedScene(
     val layers: List<ParsedLayer>,
     val width: Int,
     val height: Int,
+    val analysisMethod: String = "Heuristic segmentation",
     val timestamp: Long = System.currentTimeMillis()
 )
 
