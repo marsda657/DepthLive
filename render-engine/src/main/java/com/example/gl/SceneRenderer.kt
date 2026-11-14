@@ -339,6 +339,7 @@ class SceneRenderer(
     private fun buildShaders() {
         // Vertex Shader common to all layer quads
         val vertexShaderCode = """
+            precision mediump float;
             attribute vec2 aPosition;
             attribute vec2 aTexCoord;
             
