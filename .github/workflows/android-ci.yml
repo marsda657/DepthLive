@@ -28,7 +28,7 @@ jobs:
             -validity 3650 -dname "CN=Android Debug,O=Android,C=US"
 
       - name: Build, test and lint
-        run: ./gradlew --no-daemon --continue :app:assembleDebug :app:testDebugUnitTest :render-engine:testDebugUnitTest :app:lintDebug :render-engine:lintDebug
+        run: ./gradlew --no-daemon --continue :app:assembleDebug :app:assembleDebugAndroidTest :app:testDebugUnitTest :render-engine:testDebugUnitTest :app:lintDebug :render-engine:lintDebug
 
       - name: Upload debug APK
         if: ${{ !cancelled() }}
@@ -47,6 +47,51 @@ jobs:
           path: |
             app/build/reports/
             render-engine/build/reports/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Upload instrumentation APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: depthlive-instrumentation-apk
+          path: app/build/outputs/apk/androidTest/debug/*.apk
+          if-no-files-found: error
+          retention-days: 7
+
+  mediapipe-smoke:
+    needs: android
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          name: depthlive-debug-apk
+          path: apk
+      - uses: actions/download-artifact@v5
+        with:
+          name: depthlive-instrumentation-apk
+          path: test-apk
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          arch: x86
+          disable-animations: true
+          script: |
+            adb install apk/*.apk
+            adb install test-apk/*.apk
+            adb shell am instrument -w -e class com.example.segmentation.MediaPipeBitmapOwnershipTest com.aistudio.depthlive.vwpqzx.test/androidx.test.runner.AndroidJUnitRunner | tee mediapipe-test.txt
+            grep 'OK (1 test)' mediapipe-test.txt
+      - name: Upload MediaPipe test log
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: mediapipe-test-log
+          path: mediapipe-test.txt
           if-no-files-found: ignore
           retention-days: 7
 

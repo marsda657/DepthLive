@@ -2,7 +2,6 @@ package com.example.segmentation
 
 import android.content.Context
 import android.graphics.Bitmap
-import com.google.mediapipe.framework.image.BitmapImageBuilder
 import com.google.mediapipe.framework.image.ByteBufferExtractor
 import com.google.mediapipe.tasks.core.BaseOptions
 import com.google.mediapipe.tasks.vision.core.RunningMode
@@ -19,7 +18,7 @@ internal object MediaPipeForegroundSegmenter {
             .build()
 
         ImageSegmenter.createFromOptions(context, options).use { segmenter ->
-            val image = BitmapImageBuilder(bitmap).build()
+            val image = ownedMediaPipeImage(bitmap)
             try {
                 val mask = segmenter.segment(image).categoryMask()
                     .orElseThrow { IllegalStateException("MediaPipe returned no category mask") }
