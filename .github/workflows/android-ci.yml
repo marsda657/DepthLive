@@ -81,6 +81,7 @@ jobs:
           api-level: 29
           target: google_apis
           arch: x86_64
+          emulator-options: -no-window -gpu host -no-snapshot -noaudio -no-boot-anim -feature GLESDynamicVersion
           disable-animations: true
           script: |
             adb install --abi x86 apk/*.apk
