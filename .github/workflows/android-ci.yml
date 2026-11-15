@@ -88,12 +88,16 @@ jobs:
             adb install test-apk/*.apk
             adb shell am instrument -w -e class 'com.example.segmentation.MediaPipeBitmapOwnershipTest#closingMediaPipeImagesKeepsSourceBitmapUsable' com.aistudio.depthlive.vwpqzx.test/androidx.test.runner.AndroidJUnitRunner | tee mediapipe-test.txt
             grep 'OK (1 test)' mediapipe-test.txt
+            adb shell am instrument -w -e class com.example.segmentation.WaterRippleRenderingTest com.aistudio.depthlive.vwpqzx.test/androidx.test.runner.AndroidJUnitRunner | tee ripple-test.txt
+            grep 'OK (1 test)' ripple-test.txt
       - name: Upload MediaPipe test log
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
           name: mediapipe-test-log
-          path: mediapipe-test.txt
+          path: |
+            mediapipe-test.txt
+            ripple-test.txt
           if-no-files-found: ignore
           retention-days: 7
 

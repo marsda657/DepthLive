@@ -221,7 +221,7 @@ fun GlLivePreview(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(Icons.Default.TouchApp, contentDescription = null, tint = Color(0xFF38BDF8), modifier = Modifier.size(12.dp))
-            Text(" Tap to ripple • Tilt to parallax", color = Color(0xFFE2E8F0), fontSize = 10.sp)
+            Text(" Tap water to ripple • Tilt to parallax", color = Color(0xFFE2E8F0), fontSize = 10.sp)
         }
     }
 }

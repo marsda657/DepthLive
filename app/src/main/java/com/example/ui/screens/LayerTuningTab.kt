@@ -167,7 +167,7 @@ fun LayerTuningTab(paddingValues: PaddingValues) {
         // 3. FOREGROUND SUBJECT SHADER
         TuningCard(
             title = "Foreground Subject Shader",
-            subtitle = "Wind sway deformation rooted at the base with upper flutter",
+            subtitle = "Wind affects detected vegetation, not people or vehicles",
             icon = Icons.Default.Nature,
             iconTint = Color(0xFFFFB74D)
         ) {

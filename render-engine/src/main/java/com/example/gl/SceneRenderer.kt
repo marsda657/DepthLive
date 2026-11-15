@@ -58,10 +58,13 @@ class SceneRenderer(
     @Volatile var currentScene: ProcessedScene? = null
         set(value) {
             field = value
+            ripple = null
             pendingTextureReload = true
         }
 
     private val layerTextures = IntArray(5) // Index corresponds to LayerType ordinal
+    private var baseTexture = 0
+    private var swayMaskTexture = 0
     @Volatile private var pendingTextureReload = false
 
     // GL Programs
@@ -72,8 +75,8 @@ class SceneRenderer(
     private var particleProgram = 0
 
     // Viewport dimensions
-    private var viewWidth = 1080
-    private var viewHeight = 2400
+    @Volatile private var viewWidth = 1080
+    @Volatile private var viewHeight = 2400
 
     // Timing & Frame Rate Governor
     private var startTimeMs = SystemClock.uptimeMillis()
@@ -107,7 +110,24 @@ class SceneRenderer(
     @Volatile var isSnowing: Boolean = false
 
     fun triggerTouchRipple(xNorm: Float, yNorm: Float) {
-        ripple = Ripple(xNorm.coerceIn(0f, 1f), yNorm.coerceIn(0f, 1f), SystemClock.uptimeMillis())
+        val scene = currentScene ?: return
+        val layers = scene.layers.filter { it.isEnabled && it.pixelCount > 0 }
+        val point = visibleWaterAt(
+            xNorm, yNorm, layers.map { HitLayer(it.type, it.depth) },
+            (tiltX / 4f) * config.gyroscopeSensitivity,
+            (tiltY / 4f) * config.gyroscopeSensitivity,
+            (config.parallaxDegrees / 4f) * 0.05f, homeScrollOffset - 0.5f,
+            centerCropScale(scene.width, scene.height, viewWidth, viewHeight)
+        ) { hit, uv ->
+            val bitmap = layers.first { it.type == hit.type }.bitmap
+            !bitmap.isRecycled && android.graphics.Color.alpha(
+                bitmap.getPixel(
+                    (uv.x * bitmap.width).toInt().coerceIn(0, bitmap.width - 1),
+                    (uv.y * bitmap.height).toInt().coerceIn(0, bitmap.height - 1)
+                )
+            ) > 127
+        } ?: return
+        ripple = Ripple(point.x, point.y, SystemClock.uptimeMillis())
     }
 
     fun triggerUnlockAnimation() {
@@ -159,6 +179,8 @@ class SceneRenderer(
             frameRenderTimeMs = (System.nanoTime() - frameStartNs) / 1_000_000.0f
             return
         }
+        val crop = centerCropScale(scene.width, scene.height, viewWidth, viewHeight)
+        drawSceneBase(crop)
 
         val nowMs = SystemClock.uptimeMillis()
         val timeSec = (nowMs - startTimeMs) / 1000.0f
@@ -182,8 +204,8 @@ class SceneRenderer(
             }
         }
 
-        // Render each semantic layer in depth order (Far -> Near)
-        val layers = scene.layers.sortedBy { it.depth }
+        // Keep semantic subjects in front even when coarse depth predictions overlap.
+        val layers = scene.layers.sortedBy { it.type.ordinal }
         for (layer in layers) {
             if (!layer.isEnabled) continue
 
@@ -217,6 +239,7 @@ class SceneRenderer(
             setUniform1f(program, "uHomeScroll", homeScrollOffset - 0.5f)
             setUniform1f(program, "uAudioEnergy", if (config.audioReactive) audioEnergy * config.audioSensitivity else 0.0f)
             setUniform1f(program, "uUnlockProgress", unlockProgress)
+            setUniform2f(program, "uTextureScale", crop.x, crop.y)
 
             // Touch ripples (center and age)
             val r = ripple
@@ -248,6 +271,10 @@ class SceneRenderer(
                 LayerType.FOREGROUND -> {
                     setUniform1f(program, "uSwaySpeed", config.foregroundSwaySpeed)
                     setUniform1f(program, "uSwayAmp", config.foregroundSwayAmplitude)
+                    setUniform1i(program, "uHasSwayMask", if (swayMaskTexture != 0) 1 else 0)
+                    GLES20.glActiveTexture(GLES20.GL_TEXTURE1)
+                    GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, swayMaskTexture)
+                    setUniform1i(program, "uSwayMask", 1)
                 }
                 else -> { /* standard layer */ }
             }
@@ -287,6 +314,7 @@ class SceneRenderer(
         GLES20.glVertexAttribPointer(texHandle, 2, GLES20.GL_FLOAT, false, 0, texCoordBuffer)
 
         setUniform1f(particleProgram, "uTime", timeSec)
+        setUniform2f(particleProgram, "uTextureScale", 1f, 1f)
         setUniform1f(particleProgram, "uUnlockProgress", unlockProgress)
         setUniform1f(particleProgram, "uAudioEnergy", if (config.audioReactive) audioEnergy else 0.0f)
 
@@ -318,6 +346,7 @@ class SceneRenderer(
         GLES20.glVertexAttribPointer(texHandle, 2, GLES20.GL_FLOAT, false, 0, texCoordBuffer)
 
         setUniform1f(defaultProgram, "uTime", 0f)
+        setUniform2f(defaultProgram, "uTextureScale", 1f, 1f)
         setUniform1f(defaultProgram, "uLayerDepth", 0.5f)
         setUniform2f(defaultProgram, "uTilt", 0f, 0f)
         setUniform1f(defaultProgram, "uParallaxScale", 0f)
@@ -336,6 +365,33 @@ class SceneRenderer(
         GLES20.glDisableVertexAttribArray(texHandle)
     }
 
+    private fun drawSceneBase(crop: TexturePoint) {
+        if (baseTexture == 0 || defaultProgram == 0) return
+        GLES20.glUseProgram(defaultProgram)
+        val pos = GLES20.glGetAttribLocation(defaultProgram, "aPosition")
+        val tex = GLES20.glGetAttribLocation(defaultProgram, "aTexCoord")
+        GLES20.glEnableVertexAttribArray(pos)
+        GLES20.glVertexAttribPointer(pos, 2, GLES20.GL_FLOAT, false, 0, vertexBuffer)
+        GLES20.glEnableVertexAttribArray(tex)
+        GLES20.glVertexAttribPointer(tex, 2, GLES20.GL_FLOAT, false, 0, texCoordBuffer)
+        setUniform1f(defaultProgram, "uLayerDepth", 0.5f)
+        setUniform2f(defaultProgram, "uTextureScale", crop.x, crop.y)
+        setUniform2f(defaultProgram, "uTilt", 0f, 0f)
+        setUniform1f(defaultProgram, "uParallaxScale", 0f)
+        setUniform1f(defaultProgram, "uHomeScroll", 0f)
+        setUniform1f(defaultProgram, "uUnlockProgress", 1f)
+        setUniform1f(defaultProgram, "uAudioEnergy", 0f)
+        setUniform1i(defaultProgram, "uAmoledMode", if (config.amoledMode) 1 else 0)
+        setUniform1f(defaultProgram, "uAmoledThreshold", config.amoledThreshold)
+        setUniform1i(defaultProgram, "uBatteryCooler", if (isLowBattery && config.batterySaverCoolPalette) 1 else 0)
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, baseTexture)
+        setUniform1i(defaultProgram, "uTexture", 0)
+        GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
+        GLES20.glDisableVertexAttribArray(pos)
+        GLES20.glDisableVertexAttribArray(tex)
+    }
+
     private fun buildShaders() {
         // Vertex Shader common to all layer quads
         val vertexShaderCode = """
@@ -347,29 +403,21 @@ class SceneRenderer(
             uniform vec2 uTilt;
             uniform float uParallaxScale;
             uniform float uHomeScroll;
+            uniform vec2 uTextureScale;
             uniform float uTime;
-            uniform float uSwaySpeed;
-            uniform float uSwayAmp;
             uniform float uAudioEnergy;
             uniform float uUnlockProgress;
             
             varying vec2 vTexCoord;
             
             void main() {
-                vTexCoord = aTexCoord;
+                vTexCoord = (aTexCoord - 0.5) * uTextureScale + 0.5;
                 vec2 pos = aPosition;
                 
                 // Depth-proportional parallax translation
                 float depthFactor = (uLayerDepth - 0.5);
                 pos += uTilt * depthFactor * uParallaxScale;
                 pos.x -= uHomeScroll * depthFactor * 0.12;
-                
-                // Wind sway on upper portion of vertical layers (Foreground)
-                if (uSwayAmp > 0.0001) {
-                    float swayHeight = clamp(1.0 - aTexCoord.y, 0.0, 1.0);
-                    float sway = sin(uTime * uSwaySpeed + pos.x * 2.0) * uSwayAmp * swayHeight * (1.0 + uAudioEnergy * 0.8);
-                    pos.x += sway;
-                }
                 
                 // Unlock scatter / outward expansion
                 if (uUnlockProgress < 0.999) {
@@ -399,7 +447,10 @@ class SceneRenderer(
 
             vec2 applyTouchRipple(vec2 uv) {
                 float age = uRippleAge - (1.0 - uLayerDepth) * 0.12;
-                if (age >= 0.0 && age < uRippleDuration && uRippleIntensity > 0.0) {
+                bool inside = uRippleCenter.x >= 0.0 && uRippleCenter.x <= 1.0 &&
+                              uRippleCenter.y >= 0.0 && uRippleCenter.y <= 1.0;
+                if (inside && texture2D(uTexture, uRippleCenter).a > 0.5 &&
+                    age >= 0.0 && age < uRippleDuration && uRippleIntensity > 0.0) {
                     vec2 diff = uv - uRippleCenter;
                     float dist = length(diff);
                     if (dist > 0.001) {
@@ -439,13 +490,11 @@ class SceneRenderer(
             uniform float uSkyLightShift;
 
             void main() {
-                vec2 uv = applyTouchRipple(vTexCoord);
-                
-                // Continuous slow cloud drift UV shift
-                uv.x = fract(uv.x + uTime * uCloudSpeed * 0.3);
-
-                vec4 color = texture2D(uTexture, uv);
+                vec4 color = texture2D(uTexture, vTexCoord);
                 if (color.a < 0.01) discard;
+                vec2 uv = vTexCoord + vec2(sin(uTime * uCloudSpeed) * 0.02, 0.0);
+                vec4 drifted = texture2D(uTexture, uv);
+                if (drifted.a > 0.99 && color.a > 0.99) color = drifted;
 
                 // Celestial lighting shift (solar angle)
                 if (uSunTracking == 1) {
@@ -480,6 +529,8 @@ class SceneRenderer(
             uniform float uCaustic;
 
             void main() {
+                vec4 color = texture2D(uTexture, vTexCoord);
+                if (color.a < 0.01) discard;
                 vec2 uv = applyTouchRipple(vTexCoord);
 
                 // Multi-frequency wave displacement
@@ -488,8 +539,8 @@ class SceneRenderer(
                 vec2 waveDisp = vec2(wave2, wave1) * uWaterAmp * (1.0 + uAudioEnergy * 0.8);
                 uv += waveDisp;
 
-                vec4 color = texture2D(uTexture, uv);
-                if (color.a < 0.01) discard;
+                vec4 displaced = texture2D(uTexture, uv);
+                if (displaced.a > 0.99 && color.a > 0.99) color = displaced;
 
                 // Specular caustic reflection shimmer
                 if (uCaustic > 0.0) {
@@ -506,11 +557,19 @@ class SceneRenderer(
             $commonFragmentFunctions
             uniform float uSwaySpeed;
             uniform float uSwayAmp;
+            uniform sampler2D uSwayMask;
+            uniform int uHasSwayMask;
 
             void main() {
-                vec2 uv = applyTouchRipple(vTexCoord);
-                vec4 color = texture2D(uTexture, uv);
+                vec4 color = texture2D(uTexture, vTexCoord);
                 if (color.a < 0.01) discard;
+                if (uHasSwayMask == 1 && texture2D(uSwayMask, vTexCoord).a > 0.99) {
+                    float sway = sin(uTime * uSwaySpeed + vTexCoord.x * 2.0) *
+                        uSwayAmp * (1.0 - vTexCoord.y) * (1.0 + uAudioEnergy * 0.8);
+                    vec2 uv = vTexCoord + vec2(sway, 0.0);
+                    vec4 shifted = texture2D(uTexture, uv);
+                    if (texture2D(uSwayMask, uv).a > 0.99 && shifted.a > 0.99 && color.a > 0.99) color = shifted;
+                }
 
                 gl_FragColor = applyPostProcessing(color);
             }
@@ -521,8 +580,7 @@ class SceneRenderer(
             $commonFragmentFunctions
 
             void main() {
-                vec2 uv = applyTouchRipple(vTexCoord);
-                vec4 color = texture2D(uTexture, uv);
+                vec4 color = texture2D(uTexture, vTexCoord);
                 if (color.a < 0.01) discard;
 
                 gl_FragColor = applyPostProcessing(color);
@@ -607,14 +665,18 @@ class SceneRenderer(
     }
 
     private fun loadSceneTextures() {
-        val scene = currentScene ?: return
-
         // Delete previous textures
         for (i in layerTextures.indices) {
             if (layerTextures[i] != 0) {
                 GLES20.glDeleteTextures(1, layerTextures, i)
                 layerTextures[i] = 0
             }
+            if (baseTexture != 0) GLES20.glDeleteTextures(1, intArrayOf(baseTexture), 0)
+            if (swayMaskTexture != 0) GLES20.glDeleteTextures(1, intArrayOf(swayMaskTexture), 0)
+            baseTexture = 0
+            swayMaskTexture = 0
+            val scene = currentScene ?: return
+            baseTexture = GlShaderUtils.loadTexture(scene.originalBitmap)
         }
 
         // Upload each layer's bitmap into a dedicated GL texture
@@ -622,6 +684,9 @@ class SceneRenderer(
             val idx = layer.type.ordinal
             if (idx in layerTextures.indices) {
                 layerTextures[idx] = GlShaderUtils.loadTexture(layer.bitmap)
+                if (layer.type == LayerType.FOREGROUND && layer.swayMask != null) {
+                    swayMaskTexture = GlShaderUtils.loadTexture(layer.swayMask)
+                }
             }
         }
     }

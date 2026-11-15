@@ -12,11 +12,14 @@ preview shows a loading state until analysis completes.
 
 - MediaPipe DeepLab identifies foreground objects locally. Sky, water and
   terrain use a second on-device ADE20K DeepLab model for semantic layers.
-  Unmapped ADE20K classes retain the existing image-based heuristic behavior.
+  Unknown classes remain stable rather than being guessed as water or sky.
+- Touch ripples start only on visible detected water and stay within its mask.
+  Wind animation is limited to detected vegetation; people and vehicles remain
+  rigid while participating in parallax. Model errors can still misclassify pixels.
   MiDaS estimates relative inverse depth from the photo; each layer's average
   drives its parallax and depth ordering. It is not metric distance and the
   renderer does not yet displace individual pixels using the depth map.
-  Diagnostics identify model failures and heuristic fallbacks.
+  Diagnostics identify model failures and depth fallbacks.
 - The Compose preview and wallpaper use the same OpenGL renderer in the
   `render-engine` Android library. Preview and wallpaper run in separate GL
   contexts; behavior still needs verification on devices.
@@ -69,7 +72,7 @@ Paul's pinned GitHub release, verifies the archive and extracted model SHA-256
 values, then packages it as an on-device MediaPipe asset. Model tensor details,
 inference checks, license provenance and the remaining dataset-terms question
 are documented below. Landscape-model inference logs and falls back to
-heuristics on runtime, native-library or out-of-memory failure.
+stable unclassified regions on runtime, native-library or out-of-memory failure.
 
 The build also downloads MiDaS v2.1 small (about 63 MiB) from the pinned
 revision of the [MiDaS Android example](https://github.com/shubham0204/MiDaS-Android),
@@ -96,9 +99,10 @@ offline rules. Model names (`mistral-small-latest`, `grok-3-mini`) are in
 `ImageSegmentationEngine.landscapeSegmenter` defaults to
 `MediaPipeLandscapeSegmenter`, which returns 1-based ADE20K-150 labels as a
 `LandscapeMask`. `Ade20kLayers` maps sky (3), water (22, 27, 61, 114, 129),
-earth/ground (14, 95), terrain, vegetation and buildings to the five
-wallpaper layers. Setting the segmenter to `null` retains the heuristic
-fallback. Diagnostics report "ADE20K landscape" when model inference succeeds.
+earth/ground (14, 95), terrain, vegetation, people, vehicles and buildings to
+the five wallpaper layers. When landscape inference is unavailable, unknown
+regions remain stable rather than receiving guessed scenery effects. Diagnostics
+report "ADE20K landscape" when model inference succeeds.
 
 ### ADE20K model provenance and validation
 
@@ -135,7 +139,7 @@ Python runtime and libraries.
 
 The output tensor alone occupies approximately 152 MiB, despite the model file
 being about 2.3 MiB. The app combines its category mask with the existing
-foreground model and falls back to heuristics if landscape inference encounters
+foreground model and leaves scenery stable if landscape inference encounters
 an out-of-memory condition. Peak memory, latency and device compatibility still
 need Android device validation.
 [ADE20K's terms](https://ade20k.csail.mit.edu/terms/index.html) restrict
