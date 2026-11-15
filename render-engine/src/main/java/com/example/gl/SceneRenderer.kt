@@ -671,13 +671,13 @@ class SceneRenderer(
                 GLES20.glDeleteTextures(1, layerTextures, i)
                 layerTextures[i] = 0
             }
-            if (baseTexture != 0) GLES20.glDeleteTextures(1, intArrayOf(baseTexture), 0)
-            if (swayMaskTexture != 0) GLES20.glDeleteTextures(1, intArrayOf(swayMaskTexture), 0)
-            baseTexture = 0
-            swayMaskTexture = 0
-            val scene = currentScene ?: return
-            baseTexture = GlShaderUtils.loadTexture(scene.originalBitmap)
         }
+        if (baseTexture != 0) GLES20.glDeleteTextures(1, intArrayOf(baseTexture), 0)
+        if (swayMaskTexture != 0) GLES20.glDeleteTextures(1, intArrayOf(swayMaskTexture), 0)
+        baseTexture = 0
+        swayMaskTexture = 0
+        val scene = currentScene ?: return
+        baseTexture = GlShaderUtils.loadTexture(scene.originalBitmap)
 
         // Upload each layer's bitmap into a dedicated GL texture
         for (layer in scene.layers) {

@@ -55,7 +55,10 @@ class WaterRippleRenderingTest {
             val layers = LayerType.entries.mapIndexed { index, type ->
                 val data = IntArray(source.size) { i ->
                     val x = i % 64
-                    if (index < 4 && x / 16 == index) source[i] else Color.TRANSPARENT
+                    val subject = x in 40..43
+                    if ((index < 4 && x / 16 == index && !subject) || (type == LayerType.FOREGROUND && subject)) {
+                        source[i]
+                    } else Color.TRANSPARENT
                 }
                 ParsedLayer(type, bitmap(data), type.defaultDepth, 25f, data.count { it != Color.TRANSPARENT })
             }
@@ -81,15 +84,18 @@ class WaterRippleRenderingTest {
             Thread.sleep(100)
             val nonWater = frame()
             assertTrue("A non-water tap changed the image", baseline.contentEquals(nonWater))
-            renderer.triggerTouchRipple(0.625f, 0.5f)
+            renderer.triggerTouchRipple(0.65f, 0.5f)
+            Thread.sleep(100)
+            assertTrue("A subject tap started a water ripple", baseline.contentEquals(frame()))
+            renderer.triggerTouchRipple(0.55f, 0.5f)
             Thread.sleep(150)
             val water = frame()
             var changedWaterPixels = 0
             for (y in 0 until 64) for (x in 0 until 64) {
                 val offset = (y * 64 + x) * 4
                 val changed = (0..3).any { baseline[offset + it] != water[offset + it] }
-                if (x in 33..46 && changed) changedWaterPixels++
-                if (x < 30 || x > 49) {
+                if (x in 33..46 && x !in 40..43 && changed) changedWaterPixels++
+                if (x < 30 || x > 49 || x in 40..43) {
                     assertTrue("Ripple changed a non-water pixel at $x,$y", !changed)
                 }
             }
