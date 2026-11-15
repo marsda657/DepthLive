@@ -11,6 +11,7 @@ import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.os.BatteryManager
 import android.os.Bundle
+import android.os.PowerManager
 import android.service.wallpaper.WallpaperService
 import android.util.Log
 import android.view.MotionEvent
@@ -18,7 +19,7 @@ import com.example.audio.AudioReactiveManager
 import com.example.data.WallpaperRepository
 import com.example.gl.SceneRenderer
 import com.example.model.ShaderConfig
-import com.example.weather.WeatherClient
+import com.example.weather.WeatherRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -26,7 +27,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.isActive
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlin.math.max
 import kotlin.math.min
@@ -56,23 +58,19 @@ class DepthLiveWallpaperService : WallpaperService() {
 
         private var isVisibleState = false
         private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-        private var weatherJob: Job? = null
         private var audioObserverJob: Job? = null
         private var sceneObserverJob: Job? = null
+        private var weatherRefreshJob: Job? = null
+        private var renderingActive = false
+        private var powerManager: PowerManager? = null
 
         private val configListener: (ShaderConfig) -> Unit = { newConfig ->
             if (::renderer.isInitialized) {
                 renderer.config = newConfig
-                if (newConfig.audioReactive && isVisibleState) {
+                if (newConfig.audioReactive && renderingActive) {
                     AudioReactiveManager.startListening(applicationContext)
                 } else if (!newConfig.audioReactive) {
                     AudioReactiveManager.stopListening()
-                }
-                if (isVisibleState && newConfig.weatherReactivity && weatherJob == null) {
-                    startWeatherPolling()
-                } else if (!newConfig.weatherReactivity) {
-                    weatherJob?.cancel()
-                    weatherJob = null
                 }
             }
         }
@@ -91,9 +89,10 @@ class DepthLiveWallpaperService : WallpaperService() {
                         if (level >= 0 && scale > 0) {
                             val percent = (level * 100) / scale
                             renderer.batteryPercent = percent
-                            renderer.isLowBattery = percent <= 20
+                            renderer.isLowBattery = percent < 20
                         }
                     }
+                    PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED -> updateRenderingState()
                 }
             }
         }
@@ -103,6 +102,7 @@ class DepthLiveWallpaperService : WallpaperService() {
             setTouchEventsEnabled(true)
 
             WallpaperRepository.init(applicationContext)
+            powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
 
             renderer = SceneRenderer(applicationContext, WallpaperRepository.shaderConfig.value)
             renderer.currentScene = WallpaperRepository.activeScene.value
@@ -110,6 +110,7 @@ class DepthLiveWallpaperService : WallpaperService() {
             glSurfaceView = WallpaperGLSurfaceView(applicationContext, surfaceHolder).apply {
                 setRenderer(renderer)
                 renderMode = android.opengl.GLSurfaceView.RENDERMODE_CONTINUOUSLY
+                onPause()
             }
 
             // Sensors
@@ -122,6 +123,7 @@ class DepthLiveWallpaperService : WallpaperService() {
                 val filter = IntentFilter().apply {
                     addAction(Intent.ACTION_USER_PRESENT)
                     addAction(Intent.ACTION_BATTERY_CHANGED)
+                    addAction(PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED)
                 }
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
                     registerReceiver(systemEventReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
@@ -145,29 +147,47 @@ class DepthLiveWallpaperService : WallpaperService() {
                     renderer.audioEnergy = energy
                 }
             }
+            serviceScope.launch {
+                WeatherRepository.state.collectLatest { state ->
+                    renderer.isRaining = state.forecast?.weather?.isRaining == true
+                    renderer.isSnowing = state.forecast?.weather?.isSnowing == true
+                    renderer.weatherCode = state.forecast?.weather?.weatherCode ?: 0
+                }
+            }
         }
 
         override fun onVisibilityChanged(visible: Boolean) {
             super.onVisibilityChanged(visible)
             isVisibleState = visible
+            updateRenderingState()
+        }
 
-            if (visible) {
-                // Resume rendering and sensors only while Android says the wallpaper is visible.
+        private fun updateRenderingState() {
+            val shouldRender = isVisibleState && powerManager?.isDeviceIdleMode != true
+            if (shouldRender == renderingActive) return
+            renderingActive = shouldRender
+            if (shouldRender) {
                 glSurfaceView?.onResume()
                 registerSensors()
+                weatherRefreshJob = serviceScope.launch {
+                    WeatherRepository.state.map { it.city }.distinctUntilChanged().collectLatest { city ->
+                        if (city.isNotEmpty()) {
+                            while (true) {
+                                WeatherRepository.refresh()
+                                delay(WeatherRepository.REFRESH_INTERVAL_MS)
+                            }
+                        }
+                    }
+                }
                 if (renderer.config.audioReactive) {
                     AudioReactiveManager.startListening(applicationContext)
                 }
-                if (renderer.config.weatherReactivity) {
-                    startWeatherPolling()
-                }
             } else {
-                // Stop all active work immediately while hidden (including an in-flight weather call).
+                weatherRefreshJob?.cancel()
+                weatherRefreshJob = null
                 glSurfaceView?.onPause()
                 sensorManager?.unregisterListener(this)
                 AudioReactiveManager.stopListening()
-                weatherJob?.cancel()
-                weatherJob = null
             }
         }
 
@@ -215,7 +235,7 @@ class DepthLiveWallpaperService : WallpaperService() {
         }
 
         override fun onSensorChanged(event: SensorEvent?) {
-            if (event == null || !isVisibleState) return
+            if (event == null || !renderingActive) return
 
             when (event.sensor.type) {
                 Sensor.TYPE_ROTATION_VECTOR -> {
@@ -246,24 +266,6 @@ class DepthLiveWallpaperService : WallpaperService() {
                 sm.registerListener(this, rotationSensor, SensorManager.SENSOR_DELAY_GAME)
             } else if (accelSensor != null) {
                 sm.registerListener(this, accelSensor, SensorManager.SENSOR_DELAY_GAME)
-            }
-        }
-
-        private fun startWeatherPolling() {
-            if (weatherJob?.isActive == true || !isVisibleState || !renderer.config.weatherReactivity) return
-            weatherJob = serviceScope.launch {
-                while (isActive && isVisibleState && renderer.config.weatherReactivity) {
-                    try {
-                        val weather = WeatherClient.fetchWeather()
-                        renderer.weatherCode = weather.weatherCode
-                        renderer.isRaining = weather.isRaining
-                        renderer.isSnowing = weather.isSnowing
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Weather update failed: ${e.message}")
-                    }
-                    delay(3600_000L)
-                }
-                weatherJob = null
             }
         }
 

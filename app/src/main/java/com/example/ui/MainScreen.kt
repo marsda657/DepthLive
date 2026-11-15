@@ -34,6 +34,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -52,6 +53,7 @@ import com.example.ui.screens.DiagnosticsTab
 import com.example.ui.screens.LayerTuningTab
 import com.example.ui.screens.PreviewTab
 import com.example.ui.screens.setAsLiveWallpaper
+import com.example.data.WallpaperRepository
 
 enum class AppTab(val label: String, val icon: ImageVector, val tag: String) {
     PREVIEW("Preview", Icons.Default.Wallpaper, "nav_preview"),
@@ -65,6 +67,8 @@ enum class AppTab(val label: String, val icon: ImageVector, val tag: String) {
 fun MainScreen() {
     val context = LocalContext.current
     var currentTab by remember { mutableStateOf(AppTab.PREVIEW) }
+    val isProcessing by WallpaperRepository.isProcessing.collectAsState()
+    val scene by WallpaperRepository.activeScene.collectAsState()
 
     // Intercept back button to return to Preview tab first
     BackHandler(enabled = currentTab != AppTab.PREVIEW) {
@@ -120,6 +124,7 @@ fun MainScreen() {
                     actions = {
                         Button(
                             onClick = { setAsLiveWallpaper(context) },
+                            enabled = !isProcessing && scene != null,
                             shape = RoundedCornerShape(10.dp),
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = Color(0xFF38BDF8),

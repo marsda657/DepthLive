@@ -7,19 +7,23 @@ import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.net.Uri
 import android.util.Log
 import com.example.model.ParticleType
 import com.example.model.ProcessedScene
 import com.example.model.ShaderConfig
 import com.example.segmentation.ImageSegmentationEngine
+import com.example.weather.WeatherRepository
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import java.io.File
 
 /**
  * Central repository managing active scene bitmaps, layer configurations, and persisted settings.
@@ -27,9 +31,10 @@ import java.io.File
 object WallpaperRepository {
     private const val TAG = "WallpaperRepository"
     private const val PREFS_NAME = "depthlive_wallpaper_prefs"
-    private const val CUSTOM_PHOTO_FILE = "active_wallpaper_photo.jpg"
-    private const val TEMP_CUSTOM_PHOTO_FILE = "active_wallpaper_photo.jpg.tmp"
     private var prefs: SharedPreferences? = null
+    private val sceneLock = Any()
+    private val sceneMutex = Mutex()
+    private var sceneGeneration = 0L
 
     private val _activeScene = MutableStateFlow<ProcessedScene?>(null)
     val activeScene: StateFlow<ProcessedScene?> = _activeScene.asStateFlow()
@@ -43,6 +48,7 @@ object WallpaperRepository {
     private val configListeners = mutableListOf<(ShaderConfig) -> Unit>()
 
     fun init(context: Context) {
+        WeatherRepository.init(context)
         if (prefs == null) {
             prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             loadConfigFromPrefs()
@@ -50,8 +56,19 @@ object WallpaperRepository {
             // Recover the user's last photo after process/service recreation; use the sample only
             // for first launch or if the saved photo is unavailable or corrupt.
             if (_activeScene.value == null) {
+                val generation = beginSceneLoad()
                 CoroutineScope(Dispatchers.IO).launch {
-                    loadSavedOrBundledScene(context.applicationContext)
+                    try {
+                        sceneMutex.withLock {
+                            if (isCurrent(generation)) loadSavedOrBundledScene(context.applicationContext, generation)
+                        }
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Could not load the initial scene", e)
+                    } finally {
+                        finishSceneLoad(generation)
+                    }
                 }
             }
         }
@@ -72,11 +89,28 @@ object WallpaperRepository {
         configListeners.forEach { it(newConfig) }
     }
 
-    private suspend fun loadSavedOrBundledScene(context: Context) = withContext(Dispatchers.IO) {
-        val savedPhoto = File(context.filesDir, CUSTOM_PHOTO_FILE)
-        val bitmap = if (savedPhoto.isFile) {
+    private fun beginSceneLoad(): Long = synchronized(sceneLock) {
+        _isProcessing.value = true
+        ++sceneGeneration
+    }
+
+    private fun isCurrent(generation: Long): Boolean = synchronized(sceneLock) {
+        generation == sceneGeneration
+    }
+
+    private fun publishScene(generation: Long, scene: ProcessedScene) = synchronized(sceneLock) {
+        if (generation == sceneGeneration) _activeScene.value = scene
+    }
+
+    private fun finishSceneLoad(generation: Long) = synchronized(sceneLock) {
+        if (generation == sceneGeneration) _isProcessing.value = false
+    }
+
+    private suspend fun loadSavedOrBundledScene(context: Context, generation: Long) {
+        val store = PhotoStore(context)
+        val bitmap = if (store.photoFile.isFile) {
             try {
-                BitmapFactory.decodeFile(savedPhoto.absolutePath)
+                store.decode(store.photoFile)
             } catch (e: Exception) {
                 Log.w(TAG, "Could not decode saved photo; loading the sample instead: ${e.message}")
                 null
@@ -86,24 +120,35 @@ object WallpaperRepository {
         }
 
         if (bitmap != null) {
-            _isProcessing.value = true
             try {
-                _activeScene.value = ImageSegmentationEngine.processImage(bitmap, "My Photo")
+                val scene = ImageSegmentationEngine.processImage(context, bitmap, "My Photo")
+                publishScene(generation, scene)
                 Log.d(TAG, "Restored saved photo scene")
-                return@withContext
+                return
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.e(TAG, "Could not process saved photo; loading the sample instead", e)
-            } finally {
-                _isProcessing.value = false
             }
         }
 
-        loadBundledSampleScene(context)
+        if (isCurrent(generation)) loadBundledSample(context, generation)
     }
 
-    suspend fun loadBundledSampleScene(context: Context) = withContext(Dispatchers.IO) {
-        _isProcessing.value = true
+    suspend fun loadBundledSampleScene(context: Context) {
+        val generation = beginSceneLoad()
         try {
+            withContext(Dispatchers.IO) {
+                sceneMutex.withLock {
+                    if (isCurrent(generation)) loadBundledSample(context, generation)
+                }
+            }
+        } finally {
+            finishSceneLoad(generation)
+        }
+    }
+
+    private suspend fun loadBundledSample(context: Context, generation: Long) {
             val options = BitmapFactory.Options().apply {
                 inScaled = false // Do NOT auto-scale based on emulator density
                 inPreferredConfig = Bitmap.Config.ARGB_8888
@@ -144,50 +189,29 @@ object WallpaperRepository {
             }
 
             Log.d(TAG, "Loaded base image: ${bitmap.width}x${bitmap.height}, starting segmentation...")
-            val scene = ImageSegmentationEngine.processImage(bitmap, "Alpine Lake & Peaks")
-            _activeScene.value = scene
+            val scene = ImageSegmentationEngine.processImage(context, bitmap, "Alpine Lake & Peaks")
+            publishScene(generation, scene)
             Log.d(TAG, "Scene segmentation completed with ${scene.layers.size} layers")
-        } catch (e: Throwable) {
-            Log.e(TAG, "Error in loadBundledSampleScene: ${e.message}", e)
-        } finally {
-            _isProcessing.value = false
-        }
     }
 
-    suspend fun setCustomPhoto(context: Context, bitmap: Bitmap, name: String = "Custom Photo") = withContext(Dispatchers.IO) {
-        _isProcessing.value = true
+    suspend fun setCustomPhoto(context: Context, uri: Uri, name: String = "Custom Photo") {
+        val generation = beginSceneLoad()
         try {
-            // WallpaperService.Engine can be recreated after the app process is killed. Save the
-            // original locally so the selected photo can be segmented again on the next launch.
-            saveCustomPhoto(context.applicationContext, bitmap)
-            val scene = ImageSegmentationEngine.processImage(bitmap, name)
-            _activeScene.value = scene
-        } catch (e: Throwable) {
-            Log.e(TAG, "Error processing custom photo: ${e.message}", e)
-        } finally {
-            _isProcessing.value = false
-        }
-    }
-
-    private fun saveCustomPhoto(context: Context, bitmap: Bitmap) {
-        val destination = File(context.filesDir, CUSTOM_PHOTO_FILE)
-        val temporary = File(context.filesDir, TEMP_CUSTOM_PHOTO_FILE)
-        try {
-            temporary.outputStream().use { output ->
-                check(bitmap.compress(Bitmap.CompressFormat.JPEG, 95, output)) {
-                    "Bitmap compression failed"
+            withContext(Dispatchers.IO) {
+                sceneMutex.withLock {
+                    check(isCurrent(generation)) { "Photo selection was superseded" }
+                    val bitmap = PhotoStore(context.applicationContext).copyFrom(uri)
+                    val scene = ImageSegmentationEngine.processImage(context, bitmap, name)
+                    publishScene(generation, scene)
                 }
-                output.fd.sync()
             }
-            if (!temporary.renameTo(destination)) {
-                // Rename can fail on unusual filesystems; retain the old valid image until the
-                // replacement has been fully written, then use a direct copy as a fallback.
-                temporary.copyTo(destination, overwrite = true)
-                temporary.delete()
-            }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
-            temporary.delete()
-            Log.w(TAG, "Could not persist selected photo; it will not survive process restart", e)
+            Log.e(TAG, "Error processing custom photo: ${e.message}", e)
+            throw e
+        } finally {
+            finishSceneLoad(generation)
         }
     }
 

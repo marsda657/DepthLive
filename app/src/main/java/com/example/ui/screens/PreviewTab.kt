@@ -4,7 +4,6 @@ import android.app.WallpaperManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.graphics.BitmapFactory
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -52,6 +51,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.SuggestionChipDefaults
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -71,13 +71,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.WallpaperRepository
 import com.example.llm.MotionPromptManager
+import com.example.llm.ApiKeyStore
+import com.example.llm.ChatMotionSelector
+import com.example.llm.LlmProvider
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import com.example.model.MotionPreset
 import com.example.model.PresetsData
 import com.example.ui.components.GlLivePreview
 import com.example.wallpaper.DepthLiveWallpaperService
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 /**
  * Preview Screen with interactive OpenGL live canvas, one-tap photo picker,
@@ -98,6 +101,36 @@ fun PreviewTab(
     var promptInput by remember { mutableStateOf("") }
     var promptStatus by remember { mutableStateOf<String?>(null) }
     var isGeneratingPrompt by remember { mutableStateOf(false) }
+    var useAi by remember { mutableStateOf(false) }
+    var provider by remember { mutableStateOf(LlmProvider.MISTRAL) }
+    val keyStore = remember { ApiKeyStore(context) }
+    var keyInput by remember { mutableStateOf("") }
+    var keySaved by remember(provider) { mutableStateOf(keyStore.hasKey(provider)) }
+
+    fun applyPrompt(text: String) {
+        if (isGeneratingPrompt || text.isBlank()) return
+        isGeneratingPrompt = true
+        val requestedProvider = provider
+        val baseConfig = config
+        val selector: (suspend (String) -> String)? =
+            if (useAi) { value ->
+                val key = keyStore.get(requestedProvider) ?: throw IllegalStateException("No API key saved")
+                ChatMotionSelector.select(requestedProvider, key, value)
+            } else null
+        coroutineScope.launch {
+            try {
+                val result = MotionPromptManager.parseMotionPrompt(text, baseConfig, selector)
+                if (WallpaperRepository.shaderConfig.value == baseConfig) {
+                    WallpaperRepository.updateConfig(result.config)
+                    promptStatus = result.summary
+                } else {
+                    promptStatus = "Settings changed while generating; apply the prompt again."
+                }
+            } finally {
+                isGeneratingPrompt = false
+            }
+        }
+    }
 
     // Zero-permission modern Android Photo Picker
     val photoPickerLauncher = rememberLauncherForActivityResult(
@@ -106,13 +139,10 @@ fun PreviewTab(
         if (uri != null) {
             coroutineScope.launch {
                 try {
-                    val stream = context.contentResolver.openInputStream(uri)
-                    val bitmap = BitmapFactory.decodeStream(stream)
-                    stream?.close()
-                    if (bitmap != null) {
-                        WallpaperRepository.setCustomPhoto(context, bitmap, "User Photo")
-                        Toast.makeText(context, "Photo segmented into 5 parallax layers!", Toast.LENGTH_SHORT).show()
-                    }
+                    WallpaperRepository.setCustomPhoto(context, uri, "User Photo")
+                    Toast.makeText(context, "Photo analyzed", Toast.LENGTH_SHORT).show()
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     Toast.makeText(context, "Failed to load photo: ${e.message}", Toast.LENGTH_SHORT).show()
                 }
@@ -144,7 +174,7 @@ fun PreviewTab(
                 .clip(RoundedCornerShape(20.dp))
         ) {
             GlLivePreview(
-                scene = scene,
+                scene = if (isProcessing) null else scene,
                 config = config,
                 modifier = Modifier.fillMaxSize()
             )
@@ -182,6 +212,7 @@ fun PreviewTab(
                 onClick = {
                     setAsLiveWallpaper(context)
                 },
+                enabled = !isProcessing && scene != null,
                 modifier = Modifier
                     .weight(1.3f)
                     .height(52.dp)
@@ -212,6 +243,7 @@ fun PreviewTab(
                         PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                     )
                 },
+                enabled = !isProcessing,
                 modifier = Modifier
                     .weight(1f)
                     .height(52.dp)
@@ -250,10 +282,17 @@ fun PreviewTab(
             OutlinedButton(
                 onClick = {
                     coroutineScope.launch {
-                        WallpaperRepository.loadBundledSampleScene(context)
-                        Toast.makeText(context, "Loaded Alpine Lake 5-layer scene", Toast.LENGTH_SHORT).show()
+                        try {
+                            WallpaperRepository.loadBundledSampleScene(context)
+                            Toast.makeText(context, "Loaded Alpine Lake scene", Toast.LENGTH_SHORT).show()
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            Toast.makeText(context, "Failed to load sample: ${e.message}", Toast.LENGTH_SHORT).show()
+                        }
                     }
                 },
+                enabled = !isProcessing,
                 shape = RoundedCornerShape(10.dp),
                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                 modifier = Modifier.height(34.dp).testTag("load_sample_scene_button")
@@ -295,7 +334,7 @@ fun PreviewTab(
                         modifier = Modifier.size(18.dp)
                     )
                     Text(
-                        text = "Motion Prompt (AI & Shader NLP)",
+                        text = "Motion Prompt",
                         fontSize = 14.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = Color.White
@@ -303,10 +342,56 @@ fun PreviewTab(
                 }
 
                 Text(
-                    text = "Type natural language to tune physics & shaders, or pick a suggestion below:",
+                    text = "Offline by default. If enabled, only the prompt text is sent to the chosen provider with your own API key; photos stay on-device.",
                     fontSize = 12.sp,
                     color = Color(0xFF94A3B8)
                 )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("Use ${provider.label} for this prompt", color = Color.White, fontSize = 12.sp)
+                    Switch(checked = useAi, onCheckedChange = { useAi = it }, enabled = !isGeneratingPrompt)
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    LlmProvider.values().forEach { p ->
+                        if (p == provider) Button(onClick = {}, enabled = !isGeneratingPrompt) { Text(p.label, fontSize = 12.sp) }
+                        else OutlinedButton(onClick = {
+                            provider = p
+                            keyInput = ""
+                        }, enabled = !isGeneratingPrompt) { Text(p.label, fontSize = 12.sp) }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = keyInput,
+                        onValueChange = { keyInput = it },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        placeholder = { Text(if (keySaved) "Key saved (encrypted)" else "${provider.label} API key", fontSize = 12.sp) }
+                    )
+                    OutlinedButton(onClick = {
+                        keyStore.put(provider, keyInput)
+                        keyInput = ""
+                        keySaved = keyStore.hasKey(provider)
+                    }, enabled = keyInput.isNotBlank() && !isGeneratingPrompt) { Text("Save", fontSize = 12.sp) }
+                    if (keySaved) {
+                        OutlinedButton(onClick = {
+                            keyStore.remove(provider)
+                            keyInput = ""
+                            keySaved = false
+                        }, enabled = !isGeneratingPrompt) { Text("Delete", fontSize = 12.sp) }
+                    }
+                }
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -315,7 +400,7 @@ fun PreviewTab(
                 ) {
                     OutlinedTextField(
                         value = promptInput,
-                        onValueChange = { promptInput = it },
+                        onValueChange = { promptInput = it.take(500) },
                         modifier = Modifier
                             .weight(1f)
                             .testTag("motion_prompt_input"),
@@ -335,17 +420,7 @@ fun PreviewTab(
                     )
 
                     Button(
-                        onClick = {
-                            if (promptInput.isNotBlank()) {
-                                isGeneratingPrompt = true
-                                coroutineScope.launch {
-                                    val result = MotionPromptManager.parseMotionPrompt(promptInput, config)
-                                    WallpaperRepository.updateConfig(result.config)
-                                    promptStatus = result.summary
-                                    isGeneratingPrompt = false
-                                }
-                            }
-                        },
+                        onClick = { applyPrompt(promptInput) },
                         enabled = !isGeneratingPrompt && promptInput.isNotBlank(),
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier
@@ -379,18 +454,15 @@ fun PreviewTab(
                         SuggestionChip(
                             onClick = {
                                 promptInput = suggestion
-                                coroutineScope.launch {
-                                    val result = MotionPromptManager.parseMotionPrompt(suggestion, config)
-                                    WallpaperRepository.updateConfig(result.config)
-                                    promptStatus = result.summary
-                                }
+                                applyPrompt(suggestion)
                             },
+                            enabled = !isGeneratingPrompt,
                             label = { Text(suggestion, fontSize = 11.sp, color = Color(0xFFCBD5E1)) },
                             colors = SuggestionChipDefaults.suggestionChipColors(
                                 containerColor = Color(0xFF1E293B)
                             ),
                             border = SuggestionChipDefaults.suggestionChipBorder(
-                                enabled = true,
+                                enabled = !isGeneratingPrompt,
                                 borderColor = Color(0xFF334155)
                             )
                         )
@@ -446,7 +518,7 @@ fun PreviewTab(
                         preset = preset,
                         isSelected = false,
                         onSelect = {
-                            WallpaperRepository.updateConfig(preset.config)
+                            WallpaperRepository.updateConfig(preset.config.copy(audioReactive = config.audioReactive))
                             Toast.makeText(context, "Applied: ${preset.name}", Toast.LENGTH_SHORT).show()
                         }
                     )

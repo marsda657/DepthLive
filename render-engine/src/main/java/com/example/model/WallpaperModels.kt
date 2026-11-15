@@ -15,7 +15,7 @@ enum class LayerType(
     BACKGROUND("Distant Horizon", 0.25f, 0xFF7986CB, "Mountain range, distant skyline, and horizon parallax"),
     WATER("Water & Reflection", 0.45f, 0xFF29B6F6, "Sine-wave ripples, caustic highlights, and reflections"),
     GROUND("Terrain & Midground", 0.65f, 0xFF81C784, "Shoreline, hills, ground plane, and perspective stability"),
-    FOREGROUND("Foreground Subject", 0.95f, 0xFFFFB74D, "Foliage, trees, figures, and wind-sway deformation")
+    FOREGROUND("Foreground Subject", 0.95f, 0xFFFFB74D, "People, objects and foliage; wind affects detected vegetation")
 }
 
 /**
@@ -27,7 +27,8 @@ data class ParsedLayer(
     val depth: Float,
     val coveragePercent: Float,
     val pixelCount: Int,
-    val isEnabled: Boolean = true
+    val isEnabled: Boolean = true,
+    val swayMask: Bitmap? = null
 )
 
 /**
@@ -41,6 +42,7 @@ data class ProcessedScene(
     val layers: List<ParsedLayer>,
     val width: Int,
     val height: Int,
+    val analysisMethod: String = "Heuristic segmentation",
     val timestamp: Long = System.currentTimeMillis()
 )
 
