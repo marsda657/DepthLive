@@ -78,11 +78,12 @@ jobs:
           sudo udevadm trigger --name-match=kvm
       - uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 30
-          arch: x86
+          api-level: 29
+          target: google_apis
+          arch: x86_64
           disable-animations: true
           script: |
-            adb install apk/*.apk
+            adb install --abi x86 apk/*.apk
             adb install test-apk/*.apk
             adb shell am instrument -w -e class com.example.segmentation.MediaPipeBitmapOwnershipTest com.aistudio.depthlive.vwpqzx.test/androidx.test.runner.AndroidJUnitRunner | tee mediapipe-test.txt
             grep 'OK (1 test)' mediapipe-test.txt
